@@ -2958,6 +2958,8 @@ ${ocrText}
           let videoTimer;
           try {
             statusTimer = setInterval(() => {
+              const cur = document.querySelector('video');
+              if (cur) { Player.pinMuted(cur); Player.pinSpeed(cur, Config.playbackRate); }
               const status = this.getStatusText();
               if (status.includes('100%') || status.includes('99%') || status.includes('98%') || status.includes('已完成')) {
                 this.panel.log(`${className} 播放完毕`);
@@ -3159,7 +3161,12 @@ ${ocrText}
         let startTime = Number(media.currentTime || 0);
         const started = await Utils.poll(() => {
           const currentMedia = CourseDom.getMedia();
-          if (currentMedia) media = currentMedia;
+          if (currentMedia) {
+            media = currentMedia;
+            // SPA 可能中途重建 <video>：新元素无 pin，轮询时持续补（pinMuted 对已 pin 元素也会压回 0）
+            Player.pinMuted(media);
+            Player.pinSpeed(media, Config.playbackRate);
+          }
           if (!media) return false;
           const currentTime = Number(media.currentTime || 0);
           return currentTime > startTime + 0.5 || (!media.paused && media.readyState >= 2 && currentTime > startTime + 0.2);
@@ -3184,7 +3191,11 @@ ${ocrText}
           Utils.poll(() => {
             if (playbackState.completed) return true;
             const currentMedia = CourseDom.getMedia();
-            if (currentMedia) media = currentMedia;
+            if (currentMedia) {
+              media = currentMedia;
+              Player.pinMuted(media);
+              Player.pinSpeed(media, Config.playbackRate);
+            }
             if (CourseDom.isPlayerDone(media, { startTime, minPlayedDelta: 3 })) {
               playbackState.completed = true;
               return true;
