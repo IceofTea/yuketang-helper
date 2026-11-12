@@ -664,6 +664,18 @@ const EXAM_BANK = [{"q":"工程伦理和技术伦理是同一个概念 。( )","
       }
       return keys;
     },
+    // ---- 服务端对账身份：克隆站点自己的进度接口请求（URL模板+请求头）----
+    // 由页面级嗅探钩子写入（见下方 hookVideoLog），按 classroom_id 分存
+    saveIdent(classroomId, patch) {
+      if (!classroomId) return;
+      const key = 'ykt_ident_' + classroomId;
+      const cur = Utils.safeJSONParse(sessionStorage.getItem(key), {}) || {};
+      sessionStorage.setItem(key, JSON.stringify({ ...cur, ...patch, ts: Date.now() }));
+    },
+    getIdent(classroomId) {
+      const v = Utils.safeJSONParse(sessionStorage.getItem('ykt_ident_' + classroomId), null);
+      return v && (v.progressUrl || (v.u && v.c)) ? v : null;
+    },
   };
   // 跨标签身份应答器：注入即装（别等 start()，否则克隆标签问讯时原标签还没起床）
   if ('BroadcastChannel' in window) {
@@ -684,6 +696,40 @@ const EXAM_BANK = [{"q":"工程伦理和技术伦理是同一个概念 。( )","
     };
     Store.__bc = bc;
   }
+
+  // ---- 进度接口嗅探：克隆站点自己的 get_video_watch_progress 请求（URL+头）做对账模板；
+  // 心跳 POST 兜底身份字段。注入即装，必须早于站点首次心跳 ----
+  (function hookVideoLog() {
+    const save = (url, headers, body) => {
+      try {
+        const u = new URL(String(url), location.origin);
+        if (!/\/video-log\//.test(u.pathname)) return;
+        const cid = u.searchParams.get('classroom_id');
+        if (/get_video_watch_progress/.test(u.pathname) && cid)
+          Store.saveIdent(cid, { progressUrl: u.href, headers: headers || {} });
+        if (/heartbeat/.test(u.pathname) && typeof body === 'string') {
+          const h = (Utils.safeJSONParse(body, {}).heart_data || [])[0];
+          if (h && h.u && h.c) Store.saveIdent(h.classroomid || cid, { u: h.u, c: h.c, classroomid: h.classroomid });
+        }
+      } catch (_) { }
+    };
+    const oo = XMLHttpRequest.prototype.open, sr = XMLHttpRequest.prototype.setRequestHeader, os = XMLHttpRequest.prototype.send;
+    XMLHttpRequest.prototype.open = function (m, u) { this.__yktU = u; this.__yktH = {}; return oo.apply(this, arguments); };
+    XMLHttpRequest.prototype.setRequestHeader = function (k, v) { try { this.__yktH[String(k).toLowerCase()] = String(v); } catch (_) { } return sr.apply(this, arguments); };
+    XMLHttpRequest.prototype.send = function (b) { save(this.__yktU, this.__yktH, b); return os.apply(this, arguments); };
+    const of = window.fetch;
+    if (of) window.fetch = function (input, init) {
+      try {
+        const url = typeof input === 'string' ? input : (input && input.url);
+        const rawH = (init && init.headers) || (input && input.headers);
+        const h = {};
+        if (rawH && rawH.forEach) rawH.forEach((v, k) => h[String(k).toLowerCase()] = String(v));
+        else if (rawH) for (const k in rawH) h[String(k).toLowerCase()] = String(rawH[k]);
+        save(url, h, init && init.body);
+      } catch (_) { }
+      return of.apply(this, arguments);
+    };
+  })();
 
   // ---- UI 面板 ----
   // ---- 悬浮控制台（深色 HUD，iframe 隔离防 SPA 样式污染） ----
@@ -2197,6 +2243,20 @@ const EXAM_BANK = [{"q":"工程伦理和技术伦理是同一个概念 。( )","
       const list = document?.querySelectorAll(".nav-item-leaf-box")
       if (!list) panel.warn("没有发现课程资源")
       return list
+    },
+    // 从侧边栏条目尽力提取 leaf/媒体 id（不同渲染版本属性名不一，多层兜底）
+    leafIdOf(el) {
+      const tryStr = s => { const m = s && String(s).match(/\d{6,}/); return m ? m[0] : null; };
+      for (const attr of ['id', 'data-id', 'data-leafid', 'data-leaf-id', 'leafid']) {
+        const m = tryStr(el.getAttribute && el.getAttribute(attr));
+        if (m) return m;
+      }
+      if (el.dataset) for (const v of Object.values(el.dataset)) { const m = tryStr(v); if (m) return m; }
+      const inner = el.querySelector && el.querySelector('[id],[data-id],[data-leafid],[leafid],[href]');
+      if (inner)
+        return tryStr(inner.id) || tryStr(inner.getAttribute('data-id')) || tryStr(inner.getAttribute('data-leafid'))
+          || tryStr(inner.getAttribute('leafid')) || tryStr(inner.getAttribute('href'));
+      return null;
     }
   };
 
@@ -3391,6 +3451,12 @@ ${ocrText}
     async handleMedia(route) {
       const title = CourseDom.getActiveLeafTitle() || `${route.type} ${route.leafId}`;
       this.panel.log(`开始播放：${title}`);
+      // 记录 leafId→侧边栏下标，服务端对账时按此找回漏刷项
+      try {
+        this.leafIndexMap = this.leafIndexMap || {};
+        const ai = (this.source || []).findIndex(el => el.firstChild && el.firstChild.classList && el.firstChild.classList.contains('is-active'));
+        if (ai >= 0) this.leafIndexMap[String(route.leafId)] = ai;
+      } catch (_) { }
       const ready = await Utils.poll(() => Boolean(CourseDom.getMedia()), { interval: 500, timeout: 20000 });
       let media = CourseDom.getMedia();
       if (!ready || !media) {
@@ -3671,6 +3737,61 @@ ${ocrText}
       return true;
     }
 
+    // 服务端对账：判课程完成前，用站点同款进度接口核对"服务端真记上了吗"——
+    // 本地打勾但服务端未记录的课时，按侧边栏下标回补。返回首个漏记项下标，无漏/-1
+    async auditServerProgress() {
+      const cid = Utils.getCurrentClassroomId();
+      const idn = Store.getIdent(cid);
+      if (!idn || (!idn.progressUrl && !(idn.u && idn.c))) {
+        this.panel.log('服务端对账跳过：本课程未捕获到播放会话标识');
+        return -1;
+      }
+      const items = this.source || [];
+      const isDone = el => !!el.querySelector('.icon-yuanquangou-mianzhuang') || el.dataset.yktDone === '1';
+      const tasks = [];
+      const seenVid = new Set();
+      for (let i = 0; i < items.length; i++) {
+        const el = items[i];
+        const t = (el.innerText || '').replace(/\s+/g, ' ').trim();
+        if (!t || !/^\s*(视频|音频|video|audio)/i.test(t) || !isDone(el)) continue;
+        const vid = CourseDom.leafIdOf(el)
+          || Object.keys(this.leafIndexMap || {}).find(k => this.leafIndexMap[k] === i);
+        if (vid && !seenVid.has(vid)) { seenVid.add(vid); tasks.push({ i, vid, title: t }); }
+      }
+      if (!tasks.length) return -1;
+      const build = vid => idn.progressUrl
+        ? idn.progressUrl.replace(/([?&]video_id=)\d+/, '$1' + vid)
+        : `${location.origin}/video-log/get_video_watch_progress/?cid=${idn.c}&user_id=${idn.u}&classroom_id=${idn.classroomid || cid}&video_type=video&vtype=rate&video_id=${vid}&snapshot=1&term=latest`;
+      const headers = { ...(idn.headers || {}) };
+      if (!headers['x-csrftoken']) {
+        const m = document.cookie.match(/csrftoken=([^;]+)/);
+        if (m) headers['x-csrftoken'] = decodeURIComponent(m[1]);
+      }
+      let failed = 0;
+      const missed = [];
+      for (let p = 0; p < tasks.length; p += 6) {
+        if (Store.isPaused()) return -1;
+        await Promise.all(tasks.slice(p, p + 6).map(async t => {
+          try {
+            const ctl = new AbortController();
+            const to = setTimeout(() => ctl.abort(), 5000);
+            const r = await fetch(build(t.vid), { headers, credentials: 'include', signal: ctl.signal });
+            clearTimeout(to);
+            const j = await r.json();
+            const rec = (j.data && j.data[t.vid]) || j[t.vid];
+            if (!rec || String(rec.completed) !== '1') missed.push(t);
+          } catch (_) { failed++; }
+        }));
+      }
+      if (failed * 2 > tasks.length) { this.panel.log('服务端对账失败：接口大面积无响应，本轮跳过'); return -1; }
+      if (missed.length) {
+        this.panel.log(`服务端对账发现 ${missed.length} 节本地已刷但服务端未记录，回补「${missed[0].title.slice(0, 30)}」…`);
+        return missed[0].i;
+      }
+      this.panel.log(`服务端对账通过：${tasks.length} 节媒体课时服务端均已记录 ✓`);
+      return -1;
+    }
+
     // 直接在ai-workspace页面处理课程的逻辑
     async handleNext(count) {
       // 跳过两类 leaf：① 带"已完成"勾的（icon-yuanquangou-mianzhuang）不重播
@@ -3709,6 +3830,16 @@ ${ocrText}
               return this.handleNext(i);
             }
           }
+        }
+        // 服务端对账（封顶3轮，防接口口径差异造成死循环回补）
+        this._auditRounds = this._auditRounds || 0;
+        if (this._auditRounds < 3) {
+          this._auditRounds++;
+          const idx = await this.auditServerProgress();
+          if (idx >= 0) return this.handleNext(idx);
+        } else if (this._auditRounds === 3) {
+          this._auditRounds++;
+          this.panel.log('服务端对账已达 3 轮上限，停止回补');
         }
         this.panel.log('课程刷完啦 🎉');
         this.panel.resetStartButton('刷完啦~');
