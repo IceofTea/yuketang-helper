@@ -407,10 +407,19 @@
       const saved = Utils.safeJSONParse(raw, null);
       if (!saved || !saved.ts) return null;
       if (Date.now() - saved.ts > 48 * 60 * 60 * 1000) { localStorage.removeItem(Config.storageKeys.batch); return null; }
+      // 自愈：历史 bug 曾把课程页 URL 存成 courselistUrl → 让出/刷完会跳回课程页而非列表
+      if (!saved.courselistUrl || !/\/pro\/courselist/.test(saved.courselistUrl)) {
+        saved.courselistUrl = `${location.origin}/pro/courselist`;
+        localStorage.setItem(Config.storageKeys.batch, JSON.stringify(saved));
+      }
       return saved;
     },
     setBatch(courselistUrl, current = '') {
       const prev = Store.getBatch() || {};
+      // courselistUrl 必须是真正的课程列表页——防止在课程页建批量时把课程页存成"回列表地址"
+      if (!courselistUrl || !/\/pro\/courselist/.test(courselistUrl)) {
+        courselistUrl = `${location.origin}/pro/courselist`;
+      }
       localStorage.setItem(Config.storageKeys.batch, JSON.stringify({
         courselistUrl,
         current: current || prev.current || '',
@@ -513,7 +522,8 @@
       const now = Date.now();
       let dirty = false;
       for (const k of Object.keys(saved)) {
-        if (now - (saved[k] && saved[k].ts || 0) > 10 * 60 * 1000) { delete saved[k]; dirty = true; }
+        // TTL 90s：心跳 60s 续期，标签死/跳走后 1.5 倍周期内自动释放（原来 10min 误标"进行中"太久）
+        if (now - (saved[k] && saved[k].ts || 0) > 90 * 1000) { delete saved[k]; dirty = true; }
       }
       if (dirty) localStorage.setItem('ykt_claims', JSON.stringify(saved));
       return saved;
@@ -3467,6 +3477,8 @@ ${ocrText}
 
   // ---- 课程列表页：挑选未完成课程并进入 ----
   async function runCourseList(panel) {
+    // 统一闸门：任何路径触发的自动选课都必须过检查（暂停/总开关/批量已退出 → 一律不跳）
+    if (Store.isPaused() || Store.isMasterOff() || !Store.getBatch()) return;
     // 选课面板激活期间本标签不自动选课跳走（picker 显示 ~45s 窗口）
     if (window.__yktPickerActive && window.__yktPickerActive()) {
       panel.log('选课面板打开中，45s 后自动恢复选课');
@@ -3618,6 +3630,15 @@ ${ocrText}
     try {
       preventScreenCheck();
       Object.defineProperty(navigator, 'webdriver', { get: () => false });
+    } catch (e) { /* 非致命 */ }
+    // 释放本标签持有的、不属于当前页的 claim（跳回列表/整页跳课后旧 claim 立即让出）
+    try {
+      const curCid = Utils.getCurrentClassroomId();
+      const me = Store.getTabId();
+      const claims = Store.getClaims();
+      for (const cid of Object.keys(claims)) {
+        if (claims[cid].tab === me && cid !== curCid) Store.unclaimCourse(cid);
+      }
     } catch (e) { /* 非致命 */ }
     await Utils.waitForMountTarget();
     try {
