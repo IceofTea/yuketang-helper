@@ -253,6 +253,44 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
       }
       return null;
     },
+    // 提取课程列表：优先 Vue tableData2（含 classroom_id），fallback 卡片 DOM 对齐
+    getCourseList() {
+      const batch = Store.getBatch() || {};
+      const doneSet = new Set([...(batch.done || []), ...(batch.skipped || [])]);
+      const claims = Store.getClaims();
+      const me = Store.getTabId();
+      // ① Vue tableData2：含 classroom_id/course_name，能直接构造目录页 URL
+      const cards = [...document.querySelectorAll('.lesson-cardS')];
+      for (const c of cards) {
+        let node = c.__vue__ || (c.querySelector('.el-card') || {}).__vue__;
+        let depth = 0;
+        while (node && depth < 8) {
+          const d = node.$data || {};
+          if (Array.isArray(d.tableData2) && d.tableData2.length) {
+            const keyOf = i => this.cardKey(cards[i]) || '';
+            return d.tableData2.map((o, i) => {
+              const cid = String(o.classroom_id || '');
+              const name = (o.course_name || o.classroom_name || `课程${i + 1}`).trim();
+              const key = keyOf(i);
+              const done = doneSet.has(key)
+                || (/100%|已完成|已结课/.test(key) && !/(\d{1,2})%/.test(key));
+              const claimed = !!(claims[cid] && claims[cid].tab !== me);
+              return { cid, name, key, done, claimed };
+            }).filter(x => x.cid);
+          }
+          node = node.$parent;
+          depth++;
+        }
+        break;
+      }
+      // ② fallback：卡片 DOM，id 未知（无法构造 URL，仅供展示）
+      return cards.map(c => {
+        const key = this.cardKey(c) || '';
+        const name = (c.querySelector('h1') || {}).innerText || key.slice(0, 30);
+        const done = doneSet.has(key) || (/100%|已完成|已结课/.test(key) && !/(\d{1,2})%/.test(key));
+        return { cid: '', name: name.trim(), key, done, claimed: false, noUrl: true };
+      });
+    },
     waitForMountTarget(timeout = 15000) {
       const getTarget = () => document.body || document.documentElement;
       const existing = getTarget();
@@ -733,6 +771,38 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
         .cfg-foot button { border: none; border-radius: 6px; padding: 6px 16px; font-size: 12px; cursor: pointer; color: #fff; }
         #cfg-save { background: #2f7bff; }
         #cfg-close { background: var(--halt-bg); }
+
+        /* ---- 批量选课面板 ---- */
+        .hud-picker {
+          display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+          background: var(--cfg-bg); z-index: 98; padding: 12px 14px; overflow-y: auto;
+          flex-direction: column;
+        }
+        .hud-picker.show { display: flex; }
+        .pk-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+        .pk-title { font-size: 13px; font-weight: 600; color: var(--heading); }
+        .pk-count { font-size: 11px; color: var(--accent); font-weight: 600; }
+        .pk-tip {
+          font-size: 10.5px; color: var(--muted); line-height: 1.5; margin-bottom: 8px;
+          padding: 6px 8px; border-radius: 6px; background: var(--ans-bg); border: 1px solid var(--ans-border);
+        }
+        .pk-list { flex: 1; overflow-y: auto; margin: 0 -4px; padding: 0 4px; }
+        .pk-item {
+          display: flex; align-items: center; gap: 8px; padding: 6px 4px;
+          border-bottom: 1px dashed var(--feed-line); font-size: 12px;
+        }
+        .pk-item input { flex-shrink: 0; accent-color: #2f7bff; }
+        .pk-name { flex: 1; color: var(--fg); cursor: pointer; text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .pk-name:hover { color: var(--accent); text-decoration: underline; }
+        .pk-badge { font-size: 10px; padding: 1px 6px; border-radius: 8px; flex-shrink: 0; }
+        .pk-badge.done { background: rgba(61,220,132,.18); color: #1f9d55; }
+        .pk-badge.busy { background: rgba(255,176,32,.18); color: #b8860b; }
+        .pk-badge.todo { background: var(--bar-bg); color: var(--muted); }
+        .pk-foot { display: flex; gap: 8px; margin-top: 10px; }
+        .pk-foot .hud-btn { font-size: 11.5px; padding: 7px 0; }
+        #pk-open { background: #2f7bff; }
+        #pk-sel { background: var(--sub-btn-bg); color: var(--sub-btn-fg); }
+        #pk-close { background: var(--halt-bg); }
       </style>
 
       <div class="hud-mini" id="hud-mini">🎓</div>
@@ -741,6 +811,7 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
           <span class="hud-dot" id="hud-dot"></span>
           <span class="ttl">雨课堂学习助手 Pro</span>
           <span class="hud-state" id="hud-state">待机</span>
+          <span class="hud-icon" id="pk-btn" title="批量选课（课程列表页）">📚</span>
           <span class="hud-icon" id="theme-btn" title="切换深浅主题">🌙</span>
           <span class="hud-icon" id="help-btn" title="关于">?</span>
           <span class="hud-icon" id="mini-btn" title="最小化">—</span>
@@ -790,6 +861,19 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
           <button class="hud-btn" id="btn-cfg">⚙ AI 设置</button>
           <button class="hud-btn" id="btn-wipe">🗑 清缓存</button>
           <button class="hud-btn" id="btn-refresh">↻ 重载</button>
+        </div>
+        <div class="hud-picker" id="pk-pane">
+          <div class="pk-head">
+            <span class="pk-title">📚 选择要刷的课程</span>
+            <span class="pk-count" id="pk-count"></span>
+          </div>
+          <div class="pk-tip" id="pk-tip">可同时开多个课程标签并行刷课。勾选后点「打开所选」为新标签；浏览器若拦弹窗，点地址栏右侧图标允许本站弹窗，或逐个点击课程名打开。</div>
+          <div class="pk-list" id="pk-list"></div>
+          <div class="pk-foot">
+            <button class="hud-btn" id="pk-open">打开所选</button>
+            <button class="hud-btn" id="pk-sel">全选未刷</button>
+            <button class="hud-btn" id="pk-close">关闭</button>
+          </div>
         </div>
         <div class="hud-cfg" id="cfg-pane">
           <div class="cfg-item"><label>AI API 地址</label><input type="text" id="cfg-url"></div>
@@ -860,6 +944,14 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
       cfgClose: doc.getElementById('cfg-close'),
       helpBtn: doc.getElementById('help-btn'),
       themeBtn: doc.getElementById('theme-btn'),
+      pkBtn: doc.getElementById('pk-btn'),
+      pkPane: doc.getElementById('pk-pane'),
+      pkList: doc.getElementById('pk-list'),
+      pkCount: doc.getElementById('pk-count'),
+      pkTip: doc.getElementById('pk-tip'),
+      pkOpen: doc.getElementById('pk-open'),
+      pkSel: doc.getElementById('pk-sel'),
+      pkClose: doc.getElementById('pk-close'),
       miniBtn: doc.getElementById('mini-btn'),
       hudMini: doc.getElementById('hud-mini'),
     };
@@ -930,6 +1022,122 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
     ui.helpBtn.addEventListener('click', () => {
       window.parent.alert('雨课堂学习助手 Pro v' + Config.version + '\n基于开源雨课堂脚本社区增强（GPL3）\n刷课 · 进度仪表盘 · 可选作业代答');
     });
+
+    // ---- 批量选课面板 ----
+    const PICKER_KEY = 'ykt_picker_ts';
+    const PICKER_DONE = 'ykt_picker_done';
+    // picker 激活窗口 45s：期间本标签 runCourseList 不自动选课跳走（避免打断选择）
+    window.__yktPickerActive = () => (Date.now() - Number(sessionStorage.getItem(PICKER_KEY) || 0)) < 45000;
+    const touchPicker = () => sessionStorage.setItem(PICKER_KEY, String(Date.now()));
+    let pkTimer = null;
+
+    const renderPicker = () => {
+      const list = Utils.getCourseList();
+      ui.pkList.innerHTML = '';
+      ui.pkCount.innerText = `共 ${list.length} 门 · 未刷 ${list.filter(x => !x.done && !x.claimed).length}`;
+      for (const c of list) {
+        const row = doc.createElement('label');
+        row.className = 'pk-item';
+        const cb = doc.createElement('input');
+        cb.type = 'checkbox';
+        cb.dataset.cid = c.cid;
+        cb.checked = !c.done && !c.claimed && !!c.cid;
+        cb.disabled = c.done || c.claimed || !c.cid;
+        const a = doc.createElement('a');
+        a.className = 'pk-name';
+        a.innerText = c.name;
+        if (c.cid) {
+          a.href = `${location.origin}/pro/lms/${c.cid}/studycontent`;
+          a.target = '_blank';
+          a.rel = 'noopener';
+          a.title = '新标签打开（每次点击=手动放行一个弹窗）';
+          a.addEventListener('click', e => e.stopPropagation()); // 点链接不切勾选
+        } else {
+          a.title = '未识别课程 ID，无法直接打开';
+        }
+        const badge = doc.createElement('span');
+        badge.className = 'pk-badge ' + (c.done ? 'done' : c.claimed ? 'busy' : 'todo');
+        badge.innerText = c.done ? '已完成' : c.claimed ? '进行中' : '未刷';
+        row.append(cb, a, badge);
+        ui.pkList.appendChild(row);
+      }
+    };
+
+    const hidePicker = () => {
+      ui.pkPane.classList.remove('show');
+      clearInterval(pkTimer);
+      sessionStorage.removeItem(PICKER_KEY);
+      sessionStorage.setItem(PICKER_DONE, '1');
+    };
+
+    const openCourses = cids => {
+      // batch 存在才能让新标签自动开刷（boot 的 batch+学习页 分支）
+      if (!Store.getBatch()) Store.setBatch(location.href, '');
+      let opened = 0, blocked = 0;
+      for (const cid of cids) {
+        try {
+          const w = window.open(`${location.origin}/pro/lms/${cid}/studycontent`, '_blank');
+          w ? opened++ : blocked++;
+        } catch (_) { blocked++; }
+      }
+      ui.pkTip.innerText = blocked
+        ? `已开 ${opened} 个，被拦截 ${blocked} 个——点地址栏右侧 🚫 图标「始终允许弹窗」后重试，或逐个点击课程名链接（手动必放行）`
+        : `已打开 ${opened} 个新标签，各自将自动开始刷课`;
+      if (opened) sessionStorage.setItem(PICKER_DONE, '1');
+      return opened;
+    };
+
+    const openChecked = (allTodo = false) => {
+      const cids = allTodo
+        ? Utils.getCourseList().filter(c => !c.done && !c.claimed && c.cid).map(c => c.cid)
+        : [...ui.pkList.querySelectorAll('input[type=checkbox]:checked')].map(b => b.dataset.cid).filter(Boolean);
+      if (!cids.length) { ui.pkTip.innerText = '没有可打开的课程（都已完成/进行中或未勾选）'; return 0; }
+      return openCourses(cids);
+    };
+
+    const showPicker = (autoSecs = 0) => {
+      renderPicker();
+      ui.pkPane.classList.add('show');
+      touchPicker();
+      clearInterval(pkTimer);
+      if (autoSecs > 0) {
+        let left = autoSecs;
+        pkTimer = setInterval(() => {
+          left--;
+          touchPicker();
+          ui.pkCount.innerText = `${left}s 后自动打开全部未刷`;
+          if (left <= 0) {
+            clearInterval(pkTimer);
+            openChecked(true);
+            hidePicker();
+          }
+        }, 1000);
+      }
+    };
+
+    ui.pkBtn.addEventListener('click', () => {
+      if (!Utils.isCourseListPage()) { log('批量选课面板仅在课程列表页（pro/courselist）可用'); return; }
+      ui.pkPane.classList.contains('show') ? hidePicker() : showPicker(0);
+    });
+    ui.pkClose.addEventListener('click', hidePicker);
+    ui.pkSel.addEventListener('click', () => {
+      [...ui.pkList.querySelectorAll('input[type=checkbox]')].forEach(b => { if (!b.disabled) b.checked = true; });
+    });
+    ui.pkOpen.addEventListener('click', () => openChecked(false));
+
+    // 课程列表页：首次检测到课程卡片 → 自动弹选课面板（30s 倒计时，本次会话只弹一次）
+    if (Utils.isCourseListPage() && !sessionStorage.getItem(PICKER_DONE)) {
+      let popped = false;
+      const popTimer = setInterval(() => {
+        if (popped) { clearInterval(popTimer); return; }
+        if (document.querySelectorAll('.lesson-cardS').length) {
+          popped = true;
+          clearInterval(popTimer);
+          showPicker(30);
+        }
+      }, 1500);
+      setTimeout(() => clearInterval(popTimer), 60000);
+    }
 
     // ---- 日志折叠 ----
     let feedFolded = false;
@@ -3074,6 +3282,12 @@ ${ocrText}
 
   // ---- 课程列表页：挑选未完成课程并进入 ----
   async function runCourseList(panel) {
+    // 选课面板激活期间本标签不自动选课跳走（picker 显示 ~45s 窗口）
+    if (window.__yktPickerActive && window.__yktPickerActive()) {
+      panel.log('选课面板打开中，45s 后自动恢复选课');
+      setTimeout(() => runCourseList(panel).catch(() => { }), 45000);
+      return;
+    }
     const picked = await Utils.pickUnfinishedCourse(panel);
     if (!picked) {
       const batch = Store.getBatch();
