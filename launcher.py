@@ -106,14 +106,23 @@ def ensure_browser():
     if not exe:
         log('ERROR: Edge/Chrome not found - start your browser with --remote-debugging-port=9222')
         return False
-    log('starting browser with remote debugging ...')
-    subprocess.Popen([exe, '--remote-debugging-port=9222', COURSELIST])
-    for _ in range(20):
+    # Dedicated profile dir is REQUIRED:
+    #  - Chrome/Edge >=136 ignore --remote-debugging-port on the default profile
+    #  - a running instance swallows the flag (new process just hands off the URL)
+    # It also keeps the yuketang login session persistent across restarts.
+    profile = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), 'tools', 'browser_profile')
+    os.makedirs(profile, exist_ok=True)
+    log('starting browser with remote debugging (profile: %s) ...' % profile)
+    subprocess.Popen([exe, '--remote-debugging-port=9222',
+                      '--user-data-dir=%s' % profile,
+                      '--no-first-run', '--no-default-browser-check',
+                      COURSELIST])
+    for _ in range(25):
         time.sleep(1)
         if port_up():
             log('debug port up')
             return True
-    log('ERROR: debug port did not come up - close ALL windows of that browser and retry')
+    log('ERROR: debug port did not come up - check firewall/antivirus blocking localhost:9222')
     return False
 
 

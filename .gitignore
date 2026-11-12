@@ -4,3 +4,7 @@
 
 ykt-launcher.log
 watchdog.log
+tools/browser_profile/
+build/
+dist/
+*.spec
