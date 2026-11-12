@@ -37,6 +37,17 @@
 
 > 要求：Windows + Edge/Chrome + Python（`py` 命令可用）。watchdog 控制台窗口别关，关了新页面就不再自动注入。
 
+### .bat 跑不了？按提示对号入座
+
+| 报错 | 原因 | 解决 |
+|---|---|---|
+| `No usable Python found` | 没装 Python 或版本 <3.8 | python.org 下载安装，**勾选 "Add python.exe to PATH"** |
+| `Edge / Chrome not found` | 浏览器装在非标准路径 | 手动带参数启动：`浏览器.exe --remote-debugging-port=9222` 后重跑 |
+| `Debug port still not reachable` | 已有浏览器实例没带调试参数 | **先关掉该浏览器所有窗口**再重跑（复用旧实例会吞掉调试参数） |
+| `pip install failed` | 没网/被墙 | 手动跑 `py -m pip install websockets` 后重跑 |
+
+其它情况：macOS/Linux 用不了 .bat——改用下方**油猴方式**（跨平台）；Windows 7 太老不建议，用油猴。
+
 ## 使用方式 B：油猴（备选）
 
 1. Edge / Chrome 装 **Tampermonkey** 扩展
