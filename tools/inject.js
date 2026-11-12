@@ -436,6 +436,9 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
     setPaused() { sessionStorage.setItem(Config.storageKeys.paused, '1'); },
     clearPaused() { sessionStorage.removeItem(Config.storageKeys.paused); },
     isPaused() { return !!sessionStorage.getItem(Config.storageKeys.paused); },
+    // 全局总开关（localStorage，所有标签生效）：关闭后脚本不自动弹面板/不自动刷
+    isMasterOff() { return localStorage.getItem('ykt_master_off') === '1'; },
+    setMasterOff(off) { off ? localStorage.setItem('ykt_master_off', '1') : localStorage.removeItem('ykt_master_off'); },
     // 答题模式：默认关（纯刷课），面板按钮+确认后开启；只对题库白名单课程生效
     isAnswerMode() { return localStorage.getItem(Config.storageKeys.answerMode) === '1'; },
     setAnswerMode(on) { on ? localStorage.setItem(Config.storageKeys.answerMode, '1') : localStorage.removeItem(Config.storageKeys.answerMode); },
@@ -800,10 +803,11 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
         .pk-badge.done { background: rgba(61,220,132,.18); color: #1f9d55; }
         .pk-badge.busy { background: rgba(255,176,32,.18); color: #b8860b; }
         .pk-badge.todo { background: var(--bar-bg); color: var(--muted); }
-        .pk-foot { display: flex; gap: 8px; margin-top: 10px; }
-        .pk-foot .hud-btn { font-size: 11.5px; padding: 7px 0; }
+        .pk-foot { display: flex; gap: 6px; margin-top: 10px; }
+        .pk-foot .hud-btn { font-size: 10.5px; padding: 7px 0; }
         #pk-open { background: #2f7bff; }
         #pk-sel { background: var(--sub-btn-bg); color: var(--sub-btn-fg); }
+        #pk-quit { background: #8a5a00; }
         #pk-close { background: var(--halt-bg); }
         #pk-open.urgent { animation: pkPulse 1s infinite; background: linear-gradient(90deg,#2f7bff,#7b5cff); }
         @keyframes pkPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(47,123,255,.5); } 50% { box-shadow: 0 0 0 6px rgba(47,123,255,0); } }
@@ -820,6 +824,7 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
           <span class="hud-icon" id="pk-btn" title="批量选课（课程列表页）">📚</span>
           <span class="hud-icon" id="theme-btn" title="切换深浅主题">🌙</span>
           <span class="hud-icon" id="help-btn" title="关于">?</span>
+          <span class="hud-icon" id="master-btn" title="脚本总开关（所有标签生效）">⏻</span>
           <span class="hud-icon" id="mini-btn" title="最小化">—</span>
         </div>
         <div class="hud-card">
@@ -878,6 +883,7 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
           <div class="pk-foot">
             <button class="hud-btn" id="pk-open">打开所选</button>
             <button class="hud-btn" id="pk-sel" title="一键打开全部未刷课程">🚀 全部未刷</button>
+            <button class="hud-btn" id="pk-quit" title="清除批量刷课状态并暂停本标签——不再自动选课">⏹ 退出批量</button>
             <button class="hud-btn" id="pk-close">关闭</button>
           </div>
         </div>
@@ -958,6 +964,8 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
       pkOpen: doc.getElementById('pk-open'),
       pkSel: doc.getElementById('pk-sel'),
       pkClose: doc.getElementById('pk-close'),
+      pkQuit: doc.getElementById('pk-quit'),
+      masterBtn: doc.getElementById('master-btn'),
       miniBtn: doc.getElementById('mini-btn'),
       hudMini: doc.getElementById('hud-mini'),
     };
@@ -1153,6 +1161,27 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
       ui.pkPane.classList.contains('show') ? hidePicker() : showPicker(0);
     });
     ui.pkClose.addEventListener('click', hidePicker);
+    // ⏹ 退出批量：清批量状态 + 暂停本标签（不影响其他标签刷课）
+    ui.pkQuit.addEventListener('click', () => {
+      Store.clearBatch();
+      Store.setPaused();
+      hidePicker();
+      log('已退出批量模式：本标签不再自动选课/刷课（其他标签不受影响）。点「▶ 开始」恢复。');
+    });
+    // ⏻ 脚本总开关：localStorage 全局，所有标签生效
+    const refreshMasterBtn = () => {
+      const off = Store.isMasterOff();
+      ui.masterBtn.style.opacity = off ? '0.35' : '1';
+      ui.masterBtn.title = off ? '脚本已禁用（所有标签）——点击重新启用' : '脚本总开关（所有标签生效）——点击禁用';
+    };
+    refreshMasterBtn();
+    ui.masterBtn.addEventListener('click', () => {
+      const off = !Store.isMasterOff();
+      Store.setMasterOff(off);
+      refreshMasterBtn();
+      if (off) { hidePicker(); log('⏻ 脚本已禁用（所有标签）：不再自动弹面板/刷课。点 ⏻ 恢复。'); }
+      else log('⏻ 脚本已启用');
+    });
     // 🚀 一键打开全部未刷课程（gesture 内开多窗，放行率高）
     ui.pkSel.addEventListener('click', () => {
       const targets = pkCourses.filter(c => !c.done && !c.claimed && c.url);
@@ -1170,7 +1199,7 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
     // 课程列表页：检测到课程卡片 → 自动弹选课面板（30s 倒计时；关闭后 10min 冷却不重弹）
     const PICKER_COOLDOWN = 10 * 60 * 1000;
     const pickerCooledDown = () => (Date.now() - Number(sessionStorage.getItem(PICKER_DONE) || 0)) > PICKER_COOLDOWN;
-    if (Utils.isCourseListPage() && pickerCooledDown()) {
+    if (Utils.isCourseListPage() && pickerCooledDown() && !Store.isPaused() && !Store.isMasterOff()) {
       let popped = false;
       const popTimer = setInterval(() => {
         if (popped) { clearInterval(popTimer); return; }
@@ -3488,7 +3517,9 @@ ${ocrText}
       const currentClassroomId = Utils.getCurrentClassroomId();
       const batch = Store.getBatch();
       const paused = Store.isPaused();
-      if (paused) {
+      if (Store.isMasterOff()) {
+        panel.log('⏻ 脚本已禁用（所有标签生效）：不自动弹面板/刷课。点顶部 ⏻ 恢复。');
+      } else if (paused) {
         panel.log('已处于停止状态（点"开始刷课"或"重新加载"恢复）');
       } else if (batch && Utils.isCourseListPage()) {
         const waitMs = (batch.nextRetryTs || 0) - Date.now();
@@ -3505,6 +3536,7 @@ ${ocrText}
           // 等选课面板完成其生命周期（弹出→倒计时/手动操作→关闭），再自动选课
           const kickT0 = Date.now();
           const kickOff = () => {
+            if (Store.isPaused() || Store.isMasterOff()) return;
             const doneTs = Number(sessionStorage.getItem('ykt_picker_done') || 0);
             const pickerShowing = window.__yktPickerActive && window.__yktPickerActive();
             const pickerPending = (Date.now() - doneTs) > 10 * 60 * 1000; // 冷却中=即将弹/还没弹过
@@ -3512,7 +3544,14 @@ ${ocrText}
               setTimeout(kickOff, 2000);
               return;
             }
-            runCourseList(panel).catch(e => { panel.log('选课异常：' + (e.message || e)); panel.resetStartButton('开始刷课'); });
+            // picker 已结束 → 20s 缓冲，留出手动停止/退出批量的窗口
+            panel.log('20 秒后自动挑选下一门课程（点「⏹ 停止」或重新打开选课面板可取消）');
+            setTimeout(() => {
+              if (Store.isPaused() || Store.isMasterOff()) return;
+              if (window.__yktPickerActive && window.__yktPickerActive()) { setTimeout(kickOff, 5000); return; }
+              if (!Store.getBatch()) return; // 期间用户点了「退出批量」
+              runCourseList(panel).catch(e => { panel.log('选课异常：' + (e.message || e)); panel.resetStartButton('开始刷课'); });
+            }, 20000);
           };
           setTimeout(kickOff, 1500);
         }
@@ -3531,7 +3570,7 @@ ${ocrText}
         setTimeout(() => panel.start(), 1200);
       } else if (Config.autoStart && Utils.isCourseListPage()) {
         panel.log(`${Config.autoStartDelaySec} 秒后自动开始刷课（点"停止"取消）`);
-        setTimeout(() => { if (!Store.isPaused()) panel.start(); }, Config.autoStartDelaySec * 1000);
+        setTimeout(() => { if (!Store.isPaused() && !Store.isMasterOff()) panel.start(); }, Config.autoStartDelaySec * 1000);
       }
     } catch (err) {
       console.error('面板初始化失败:', err);
