@@ -1197,16 +1197,22 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
     });
 
     // 课程列表页：检测到课程卡片 → 自动弹选课面板（30s 倒计时；关闭后 10min 冷却不重弹）
+    // 暂停/停止状态下同样弹出但不倒计时（纯手动模式）——让用户能看到「⏹ 退出批量」
     const PICKER_COOLDOWN = 10 * 60 * 1000;
     const pickerCooledDown = () => (Date.now() - Number(sessionStorage.getItem(PICKER_DONE) || 0)) > PICKER_COOLDOWN;
-    if (Utils.isCourseListPage() && pickerCooledDown() && !Store.isPaused() && !Store.isMasterOff()) {
+    if (Utils.isCourseListPage() && pickerCooledDown() && !Store.isMasterOff()) {
       let popped = false;
       const popTimer = setInterval(() => {
         if (popped) { clearInterval(popTimer); return; }
         if (document.querySelectorAll('.lesson-cardS').length) {
           popped = true;
           clearInterval(popTimer);
-          showPicker(30);
+          // paused 时手动模式弹（无倒计时，不会自动开标签）
+          showPicker(Store.isPaused() ? 0 : 30);
+          if (Store.isPaused()) {
+            ui.pkTip.innerText = '本标签已暂停/停止——可勾选课程手动打开，或点「⏹ 退出批量」彻底退出批量模式。';
+            ui.pkCount.innerText = '已暂停（手动模式）';
+          }
         }
       }, 1500);
       setTimeout(() => clearInterval(popTimer), 60000);
