@@ -1834,12 +1834,22 @@ const EXAM_BANK = [{"q":"工程伦理和技术伦理是同一个概念 。( )","
     notePause(media) {
       if (!media) return;
       const now = Date.now();
+      if (now - (media.__yktLastPause || 0) < 300) return; // 事件/轮询双路径对同一暂停沿去重
+      media.__yktLastPause = now;
       const arr = media.__yktPauseTs = (media.__yktPauseTs || []).filter(t => now - t < 5000);
       arr.push(now);
       if (arr.length >= 6) media.__yktStrikeWin = now + 8000; // 5s内>=6次真暂停→熔断8s
     },
     tryResume(media) {
       media.__yktLastResume = Date.now();
+      // xt 播放器蒙层（开播海报/暂停遮罩）在位时，裸 play() 会被站点状态机
+      // 秒级 pause+seek0 打回——点蒙层走站点自己的开播手势才真正起播
+      const mask = [...document.querySelectorAll('xt-videomask, .xt_video_player_mask, .xt_video_player_poster, .vjs-big-play-button')]
+        .find(el => {
+          const s = getComputedStyle(el), r = el.getBoundingClientRect();
+          return s.display !== 'none' && s.visibility !== 'hidden' && r.width > 40 && r.height > 30;
+        });
+      if (mask) { mask.click(); return; }
       try { const p = media.play(); if (p && p.catch) p.catch(() => { }); return p; } catch (e) { }
     },
     isNearEnd(media, threshold = 1) {
@@ -2041,11 +2051,12 @@ const EXAM_BANK = [{"q":"工程伦理和技术伦理是同一个概念 。( )","
         Player.pinMuted(media);
         Player.pinSpeed(media, Config.playbackRate);
         if (media.paused && !media.ended && !Player.isNearEnd(media)) {
-          Player.notePause(media);
+          // 只在"新暂停"沿记一次——持续暂停每 tick 记账会让熔断永冻、恢复被无限挡死
+          if (!media.__yktWasPaused) { media.__yktWasPaused = true; Player.notePause(media); }
           // 从未成功起播的媒体保留 3s 一次的轻推（补初次自动播放失败）；armed 媒体走风暴门控
           const kick = !media.__yktArmed && Date.now() - (media.__yktLastResume || 0) > 3000;
           if (kick || Player.canAutoResume(media)) Player.tryResume(media);
-        }
+        } else media.__yktWasPaused = false;
       };
       const timer = setInterval(tick, 500);
       document.addEventListener('visibilitychange', tick);
