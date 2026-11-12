@@ -266,12 +266,14 @@
             const keyOf = i => this.cardKey(cards[i]) || '';
             return d.tableData2.map((o, i) => {
               const cid = String(o.classroom_id || '');
+              const sign = o.course_sign || '';
               const name = (o.course_name || o.classroom_name || `课程${i + 1}`).trim();
               const key = keyOf(i);
-              const done = doneSet.has(key)
+              const done = doneSet.has(cid) || doneSet.has(key)
                 || (/100%|已完成|已结课/.test(key) && !/(\d{1,2})%/.test(key));
               const claimed = !!(claims[cid] && claims[cid].tab !== me);
-              return { cid, name, key, done, claimed };
+              const url = sign ? `${location.origin}/pro/lms/${sign}/${cid}/studycontent` : '';
+              return { cid, sign, name, key, done, claimed, url };
             }).filter(x => x.cid);
           }
           node = node.$parent;
@@ -799,6 +801,10 @@
         #pk-open { background: #2f7bff; }
         #pk-sel { background: var(--sub-btn-bg); color: var(--sub-btn-fg); }
         #pk-close { background: var(--halt-bg); }
+        #pk-open.urgent { animation: pkPulse 1s infinite; background: linear-gradient(90deg,#2f7bff,#7b5cff); }
+        @keyframes pkPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(47,123,255,.5); } 50% { box-shadow: 0 0 0 6px rgba(47,123,255,0); } }
+        .pk-item input:disabled { opacity: .4; }
+        .pk-item.noUrl .pk-name { color: var(--muted); }
       </style>
 
       <div class="hud-mini" id="hud-mini">🎓</div>
@@ -863,11 +869,11 @@
             <span class="pk-title">📚 选择要刷的课程</span>
             <span class="pk-count" id="pk-count"></span>
           </div>
-          <div class="pk-tip" id="pk-tip">可同时开多个课程标签并行刷课。勾选后点「打开所选」为新标签；浏览器若拦弹窗，点地址栏右侧图标允许本站弹窗，或逐个点击课程名打开。</div>
+          <div class="pk-tip" id="pk-tip">可同时开多个课程标签并行刷课。勾选后点「打开所选」开新标签；浏览器若拦弹窗，点课程名链接逐个打开（手动必放行）。已完成/进行中的课也可勾选打开查看。</div>
           <div class="pk-list" id="pk-list"></div>
           <div class="pk-foot">
             <button class="hud-btn" id="pk-open">打开所选</button>
-            <button class="hud-btn" id="pk-sel">全选未刷</button>
+            <button class="hud-btn" id="pk-sel" title="一键打开全部未刷课程">🚀 全部未刷</button>
             <button class="hud-btn" id="pk-close">关闭</button>
           </div>
         </div>
@@ -1027,29 +1033,46 @@
     const touchPicker = () => sessionStorage.setItem(PICKER_KEY, String(Date.now()));
     let pkTimer = null;
 
+    const PK_CHECK_KEY = 'ykt_pk_checks';
+    let pkCourses = []; // 当前渲染的课程对象缓存（供 open 取 url）
+
+    const savePkChecks = () => {
+      const checked = [...ui.pkList.querySelectorAll('input[type=checkbox]:checked')].map(b => b.dataset.cid);
+      try { sessionStorage.setItem(PK_CHECK_KEY, JSON.stringify(checked)); } catch (_) { }
+    };
+
     const renderPicker = () => {
-      const list = Utils.getCourseList();
+      pkCourses = Utils.getCourseList();
+      const saved = Utils.safeJSONParse(sessionStorage.getItem(PK_CHECK_KEY), null);
       ui.pkList.innerHTML = '';
-      ui.pkCount.innerText = `共 ${list.length} 门 · 未刷 ${list.filter(x => !x.done && !x.claimed).length}`;
-      for (const c of list) {
+      const todoCount = pkCourses.filter(x => !x.done && !x.claimed).length;
+      ui.pkCount.innerText = `共 ${pkCourses.length} 门 · 未刷 ${todoCount}`;
+      if (pkCourses.length && !todoCount && pkCourses.every(x => x.done || x.claimed)) {
+        ui.pkTip.innerText = pkCourses.every(x => x.done)
+          ? '🎉 全部课程已完成，辛苦啦！'
+          : '全部课程均已完成或正在其他标签刷课中——脚本会自动协调，无需再开。';
+      }
+      for (const c of pkCourses) {
         const row = doc.createElement('label');
-        row.className = 'pk-item';
+        row.className = 'pk-item' + (c.url ? '' : ' noUrl');
         const cb = doc.createElement('input');
         cb.type = 'checkbox';
         cb.dataset.cid = c.cid;
-        cb.checked = !c.done && !c.claimed && !!c.cid;
-        cb.disabled = c.done || c.claimed || !c.cid;
+        // 勾选记忆 > 默认勾未刷；仅无 URL 的禁用勾选
+        cb.checked = saved ? saved.includes(c.cid) : (!c.done && !c.claimed);
+        cb.disabled = !c.url;
+        cb.addEventListener('change', savePkChecks);
         const a = doc.createElement('a');
         a.className = 'pk-name';
         a.innerText = c.name;
-        if (c.cid) {
-          a.href = `${location.origin}/pro/lms/${c.cid}/studycontent`;
+        if (c.url) {
+          a.href = c.url;
           a.target = '_blank';
           a.rel = 'noopener';
-          a.title = '新标签打开（每次点击=手动放行一个弹窗）';
-          a.addEventListener('click', e => e.stopPropagation()); // 点链接不切勾选
+          a.title = '新标签打开（手动点击必放行）';
+          a.addEventListener('click', e => e.stopPropagation());
         } else {
-          a.title = '未识别课程 ID，无法直接打开';
+          a.title = '未识别课程 URL，无法直接打开';
         }
         const badge = doc.createElement('span');
         badge.className = 'pk-badge ' + (c.done ? 'done' : c.claimed ? 'busy' : 'todo');
@@ -1062,38 +1085,44 @@
     const hidePicker = () => {
       ui.pkPane.classList.remove('show');
       clearInterval(pkTimer);
+      ui.pkOpen.classList.remove('urgent');
       sessionStorage.removeItem(PICKER_KEY);
       sessionStorage.setItem(PICKER_DONE, '1');
     };
 
-    const openCourses = cids => {
+    const openCourses = courses => {
       // batch 存在才能让新标签自动开刷（boot 的 batch+学习页 分支）
       if (!Store.getBatch()) Store.setBatch(location.href, '');
       let opened = 0, blocked = 0;
-      for (const cid of cids) {
+      for (const c of courses) {
         try {
-          const w = window.open(`${location.origin}/pro/lms/${cid}/studycontent`, '_blank');
+          const w = window.open(c.url, '_blank');
           w ? opened++ : blocked++;
         } catch (_) { blocked++; }
       }
-      ui.pkTip.innerText = blocked
-        ? `已开 ${opened} 个，被拦截 ${blocked} 个——点地址栏右侧 🚫 图标「始终允许弹窗」后重试，或逐个点击课程名链接（手动必放行）`
-        : `已打开 ${opened} 个新标签，各自将自动开始刷课`;
-      if (opened) sessionStorage.setItem(PICKER_DONE, '1');
+      if (blocked) {
+        ui.pkTip.innerText = `已开 ${opened} 个，被浏览器拦截 ${blocked} 个——👉 点击下方闪动的蓝色按钮（手动点击=放行），或点地址栏 🚫 图标允许本站弹窗`;
+        ui.pkOpen.classList.add('urgent');
+      } else if (opened) {
+        ui.pkTip.innerText = `已打开 ${opened} 个新标签，各自将自动开始刷课`;
+        ui.pkOpen.classList.remove('urgent');
+        sessionStorage.setItem(PICKER_DONE, '1');
+      }
       return opened;
     };
 
     const openChecked = (allTodo = false) => {
-      const cids = allTodo
-        ? Utils.getCourseList().filter(c => !c.done && !c.claimed && c.cid).map(c => c.cid)
-        : [...ui.pkList.querySelectorAll('input[type=checkbox]:checked')].map(b => b.dataset.cid).filter(Boolean);
-      if (!cids.length) { ui.pkTip.innerText = '没有可打开的课程（都已完成/进行中或未勾选）'; return 0; }
-      return openCourses(cids);
+      const targets = allTodo
+        ? pkCourses.filter(c => !c.done && !c.claimed && c.url)
+        : pkCourses.filter(c => c.url && [...ui.pkList.querySelectorAll('input[type=checkbox]:checked')].some(b => b.dataset.cid === c.cid));
+      if (!targets.length) { ui.pkTip.innerText = '没有可打开的课程（都已完成/进行中或未勾选）'; return 0; }
+      return openCourses(targets);
     };
 
     const showPicker = (autoSecs = 0) => {
       renderPicker();
       ui.pkPane.classList.add('show');
+      ui.pkOpen.classList.remove('urgent');
       touchPicker();
       clearInterval(pkTimer);
       if (autoSecs > 0) {
@@ -1104,8 +1133,12 @@
           ui.pkCount.innerText = `${left}s 后自动打开全部未刷`;
           if (left <= 0) {
             clearInterval(pkTimer);
-            openChecked(true);
-            hidePicker();
+            const n = openChecked(true);
+            // 全部被拦或无可开 → 不关面板，引导用户手动点闪动按钮
+            if (!n && pkCourses.some(c => !c.done && !c.claimed && c.url)) {
+              ui.pkTip.innerText = '自动打开被浏览器拦截——👉 请点击下方闪动的「打开所选」，或逐个点击课程名链接';
+              ui.pkOpen.classList.add('urgent');
+            } else hidePicker();
           }
         }, 1000);
       }
@@ -1116,10 +1149,19 @@
       ui.pkPane.classList.contains('show') ? hidePicker() : showPicker(0);
     });
     ui.pkClose.addEventListener('click', hidePicker);
+    // 🚀 一键打开全部未刷课程（gesture 内开多窗，放行率高）
     ui.pkSel.addEventListener('click', () => {
-      [...ui.pkList.querySelectorAll('input[type=checkbox]')].forEach(b => { if (!b.disabled) b.checked = true; });
+      const targets = pkCourses.filter(c => !c.done && !c.claimed && c.url);
+      if (!targets.length) { ui.pkTip.innerText = '没有未刷课程可打开'; return; }
+      const n = openCourses(targets);
+      if (n) ui.pkOpen.classList.remove('urgent');
     });
-    ui.pkOpen.addEventListener('click', () => openChecked(false));
+    ui.pkOpen.addEventListener('click', () => {
+      const n = openChecked(false);
+      // 若勾了但一门没开成（拦截），按钮保持闪动提示再试
+      if (!n) return;
+      ui.pkOpen.classList.remove('urgent');
+    });
 
     // 课程列表页：首次检测到课程卡片 → 自动弹选课面板（30s 倒计时，本次会话只弹一次）
     if (Utils.isCourseListPage() && !sessionStorage.getItem(PICKER_DONE)) {
@@ -3420,6 +3462,11 @@ ${ocrText}
 
   async function boot() {
     if (Utils.inIframe()) return;
+    // 自愈：修复历史错误拼接的 /pro/lms/<cid>/studycontent/studycontent 空白页 → 回课程列表
+    if (/\/pro\/lms\/[^/]+\/studycontent\/studycontent/.test(location.pathname)) {
+      location.replace(`${location.origin}/pro/courselist`);
+      return;
+    }
     // 防检测尽早在 document-start 生效：拦 visibility/blur 监听 + 隐藏 webdriver 痕迹
     try {
       preventScreenCheck();
