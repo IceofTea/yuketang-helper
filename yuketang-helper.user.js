@@ -1735,6 +1735,34 @@ const EXAM_BANK = [{"q":"工程伦理和技术伦理是同一个概念 。( )","
 
   // ---- 播放器工具 ----
   const Player = {
+    // 站点在加载/转场/housekeeping 时会自主 pause，且可能带反作弊探测；
+    // 我方只在媒体真正进入过播放(armed)后、带冷却与熔断地恢复，避免暂停-抢播高频对打（面板频闪）
+    armMedia(media) {
+      if (!media || media.__yktArmBound) return;
+      media.__yktArmBound = true;
+      const arm = () => { media.__yktArmed = true; };
+      media.addEventListener('playing', arm);
+      media.addEventListener('timeupdate', arm);
+      media.addEventListener('loadstart', () => { media.__yktArmed = false; });
+    },
+    canAutoResume(media) {
+      if (!media || !media.__yktArmed) return false;
+      const now = Date.now();
+      if (now - (media.__yktLastResume || 0) < 500) return false; // 恢复冷却：单次暂停照旧秒回，风暴封顶~2/s
+      if (now < (media.__yktStrikeWin || 0)) return false;        // 熔断中：让站点执行完它的暂停意图
+      return true;
+    },
+    notePause(media) {
+      if (!media) return;
+      const now = Date.now();
+      const arr = media.__yktPauseTs = (media.__yktPauseTs || []).filter(t => now - t < 5000);
+      arr.push(now);
+      if (arr.length >= 6) media.__yktStrikeWin = now + 8000; // 5s内>=6次真暂停→熔断8s
+    },
+    tryResume(media) {
+      media.__yktLastResume = Date.now();
+      try { const p = media.play(); if (p && p.catch) p.catch(() => { }); return p; } catch (e) { }
+    },
     isNearEnd(media, threshold = 1) {
       if (!media) return false;
       const duration = Number(media.duration || 0);
@@ -1796,6 +1824,7 @@ const EXAM_BANK = [{"q":"工程伦理和技术伦理是同一个概念 。( )","
     },
     observePause(video, shouldResume = () => true) {
       if (!video) return () => { };
+      this.armMedia(video);
       const canResume = () => shouldResume() && !video.ended && !this.isNearEnd(video);
       // 自动播放
       const playVideo = () => {
@@ -1809,14 +1838,15 @@ const EXAM_BANK = [{"q":"工程伦理和技术伦理是同一个概念 。( )","
       playVideo();
       this.pinSpeed(video, Config.playbackRate);
       // 直接监听 pause 事件，不依赖播放器 UI 元素
-      const onPause = () => { if (canResume()) playVideo(); };
+      // 真实 pause 先记账（触发熔断判定），再过 armed/冷却/熔断门才恢复
+      const onPause = () => { this.notePause(video); if (canResume() && this.canAutoResume(video)) this.tryResume(video); };
       video.addEventListener('pause', onPause);
       // 定时兜底：防止 pause 事件被拦截 + 周期重申倍速（防站点回写）
       // 元素脱离文档（换集/SPA重建）即自清——调用方丢弃 stopper 也不会泄漏定时器
       const timer = setInterval(() => {
         if (!video.isConnected) { cleanup(); return; }
         this.pinSpeed(video, Config.playbackRate);
-        if (video.paused && canResume()) playVideo();
+        if (video.paused && canResume()) { this.notePause(video); if (this.canAutoResume(video)) this.tryResume(video); }
       }, 5000);
       // 播放器 UI 观察：按钮被点击暂停时 tip 变为「播放」
       const target = document.getElementsByClassName('play-btn-tip')[0];
@@ -1927,11 +1957,15 @@ const EXAM_BANK = [{"q":"工程伦理和技术伦理是同一个概念 。( )","
           lastMedia = media;
           media.addEventListener('pause', tick);
         }
+        Player.armMedia(media);
         media.defaultMuted = true;
         Player.pinMuted(media);
         Player.pinSpeed(media, Config.playbackRate);
         if (media.paused && !media.ended && !Player.isNearEnd(media)) {
-          media.play().catch(() => { });
+          Player.notePause(media);
+          // 从未成功起播的媒体保留 3s 一次的轻推（补初次自动播放失败）；armed 媒体走风暴门控
+          const kick = !media.__yktArmed && Date.now() - (media.__yktLastResume || 0) > 3000;
+          if (kick || Player.canAutoResume(media)) Player.tryResume(media);
         }
       };
       const timer = setInterval(tick, 500);
