@@ -62,9 +62,10 @@ watchdog 工作原理：轮询 `localhost:9222/json/list`，凡 URL 命中 `lms-
 - **批量账本** localStorage `ykt_batch`：`{courselistUrl,current,done,skipped,map,ts}`；存在即触发学习页自动 start；`map` 存 `courseId→cardKey`（选课进课时经 sessionStorage `ykt_expect_card` 回传建立）
 - **跨页恢复** sessionStorage `ykt_pending_auto_start`（per-tab，TTL 30min）：目录→播放页跳转后自动继续；`returnUrl` 为空时走页内连播
 - **漏刷回补**：`CourseRunner.handleNext` 扫到列表尾部时重抓侧边栏，找"未完成+媒体类+非当前项"的漏网 leaf 回补，全部干净才判课程完成
-- **HUD 仪表盘**：面板内 1.2s 自采集（侧边栏 leaf 分类统计/激活 index/batch 进度/计时 `ykt_stats_t0`），不依赖 runner 上报。进度条口径：leaf 按 innerText 前缀分类——`视频/音频` 进视频条、`作业` 进作业条、讨论/考试/图文不计入；作业条仅在作业代答开启时显示；视频全完成时主条金色拉满+🎉
+- **HUD 仪表盘**：面板内 1.2s 自采集（侧边栏 leaf 分类统计/激活 index/batch 进度/计时 `ykt_stats_t0`），不依赖 runner 上报。进度条口径：leaf 按 innerText 前缀分类——`视频/音频` 进视频条、`作业` 进作业条、讨论/考试/图文不计入；作业条仅在作业代答开启时显示；「正在播第 X 节」是媒体序号非全 leaf 序号；视频全完成时主条变绿+发光+一次性烟花，作业条同规则；主题存 `ykt_theme`（默认 light，HUD 顶部 🌙/☀️ 切换）
 - **作业代答**：localStorage `ykt_answer_mode`，默认关。开启后（HUD 开关+confirm）白名单课程（`QUESTION_BANK`：26960231/26960232）的"作业" leaf 进入并按章节+题号取本地答案勾选提交；`null` 答案=缺失→整卷留空不提交；`autoAI` 开时非白名单走 `handleExerciseByAI` 原 AI 路径；考试 leaf 永不进入
 - **答题助手（半自动）**：sessionStorage `ykt_assist`（per-tab，关标签失效），默认关。开启后 `autoSelect` 停推进（停在本页不跳下一条），HUD 金色横幅逐题显示题库答案（`第X/Y题·答案：选A·B·D`，判断题 √/×；无题号 tab 时列全卷答案序号）；脚本只读不代点，由机主亲自勾选提交。与作业代答互斥（开一个自动关另一个）
+- **对外接口**：`window.__yktAPI.getStatus()` 返回 `{version, paused, answerMode, assistMode, speed, theme, url, batch, log}`——排查时优先用它而不是 eval 一堆 DOM
 - **完成路径**：leaf 全部播完 → unclaim + `batch.done+=courseId` → 回 courselist → 随机选下一门 → 直到全完
 
 ## 3. 健康检查（30 秒判定是否在正常刷）

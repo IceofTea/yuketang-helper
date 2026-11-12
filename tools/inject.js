@@ -59,7 +59,8 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
       paused: 'ykt_paused',
       answerMode: 'ykt_answer_mode',
       speedPref: 'ykt_speed_pref',
-      assist: 'ykt_assist'
+      assist: 'ykt_assist',
+      theme: 'ykt_theme'
     }
   };
 
@@ -387,6 +388,9 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
     setAssistMode(on) { on ? sessionStorage.setItem(Config.storageKeys.assist, '1') : sessionStorage.removeItem(Config.storageKeys.assist); },
     // 倍速偏好：'2'（默认）/ 'random' / '1' / '1.5' / '2.5' / '3'
     getSpeedPref() { return localStorage.getItem(Config.storageKeys.speedPref) || '2'; },
+    // 主题：'light'（默认，白底）/ 'dark'
+    getTheme() { return localStorage.getItem(Config.storageKeys.theme) === 'dark' ? 'dark' : 'light'; },
+    setTheme(v) { localStorage.setItem(Config.storageKeys.theme, v === 'dark' ? 'dark' : 'light'); },
     setSpeedPref(v) { localStorage.setItem(Config.storageKeys.speedPref, String(v)); },
     getReloadCount() { return Number(sessionStorage.getItem(Config.storageKeys.reloadCount) || 0); },
     bumpReloadCount() { sessionStorage.setItem(Config.storageKeys.reloadCount, (Store.getReloadCount() + 1)); },
@@ -496,10 +500,10 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
     iframe.style.width = '560px';
     iframe.style.height = '396px';
     iframe.style.zIndex = '999999';
-    iframe.style.border = '1px solid rgba(255,255,255,.12)';
+    iframe.style.border = '1px solid rgba(30,60,120,.18)';
     iframe.style.borderRadius = '14px';
     iframe.style.overflow = 'hidden';
-    iframe.style.boxShadow = '0 12px 40px rgba(0,0,0,.45)';
+    iframe.style.boxShadow = '0 12px 40px rgba(20,40,80,.18)';
     iframe.setAttribute('frameborder', '0');
     iframe.setAttribute('id', 'ykt-hud-frame');
     const mountTarget = document.body || document.documentElement;
@@ -515,98 +519,156 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
           font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
           background: transparent; }
 
+        /* ---- 主题变量（默认浅色，body[data-theme] 切换） ---- */
+        body[data-theme="light"] {
+          --bg: linear-gradient(160deg, #ffffff, #eef2fa);
+          --mini-bg: linear-gradient(135deg, #ffffff, #e4eaf6);
+          --fg: #2a3550; --heading: #16203a; --muted: #74809e; --accent: #2f6fdd;
+          --head-bg: rgba(30,60,120,.05); --head-border: rgba(30,60,120,.10);
+          --icon-fg: #74809e; --icon-hover-bg: rgba(30,60,120,.10); --icon-hover-fg: #16203a;
+          --card-bg: rgba(47,111,221,.05); --card-border: rgba(47,111,221,.14);
+          --bar-bg: rgba(30,60,120,.12);
+          --ans-bg: rgba(200,140,10,.12); --ans-border: rgba(180,130,10,.55);
+          --ans-q: #a46a08; --ans-a: #2a3550;
+          --feed-bg: rgba(30,60,120,.05); --feed-fg: #4a5570; --feed-last: #16203a;
+          --feed-line: rgba(30,60,120,.08); --scroll: rgba(30,60,120,.22);
+          --sub-btn-bg: rgba(30,60,120,.08); --sub-btn-fg: #4a5570; --sub-btn-hover: #16203a;
+          --track-off: #c3cbdd; --wl: #4a5570;
+          --sel-bg: #ffffff; --sel-fg: #2a3550; --sel-border: rgba(30,60,120,.28);
+          --cfg-bg: #f5f7fc; --input-bg: #ffffff; --input-border: rgba(30,60,120,.28);
+          --halt-bg: #8e97ad;
+        }
+        body[data-theme="dark"] {
+          --bg: linear-gradient(160deg, #141b2e, #0d1220);
+          --mini-bg: linear-gradient(135deg, #1e2a4a, #0f1626);
+          --fg: #dce3f5; --heading: #ffffff; --muted: #8b96b8; --accent: #7ea6ff;
+          --head-bg: rgba(255,255,255,.04); --head-border: rgba(255,255,255,.07);
+          --icon-fg: #8b96b8; --icon-hover-bg: rgba(255,255,255,.12); --icon-hover-fg: #ffffff;
+          --card-bg: rgba(255,255,255,.05); --card-border: rgba(255,255,255,.08);
+          --bar-bg: rgba(255,255,255,.08);
+          --ans-bg: rgba(255,215,110,.10); --ans-border: rgba(255,215,110,.45);
+          --ans-q: #ffd76e; --ans-a: #ffffff;
+          --feed-bg: rgba(0,0,0,.25); --feed-fg: #b9c4e0; --feed-last: #eaf0ff;
+          --feed-line: rgba(255,255,255,.05); --scroll: rgba(255,255,255,.15);
+          --sub-btn-bg: rgba(255,255,255,.08); --sub-btn-fg: #b9c4e0; --sub-btn-hover: #ffffff;
+          --track-off: #3a4358; --wl: #b9c4e0;
+          --sel-bg: #1c2742; --sel-fg: #dce3f5; --sel-border: rgba(255,255,255,.15);
+          --cfg-bg: #141b2e; --input-bg: #1c2742; --input-border: rgba(255,255,255,.15);
+          --halt-bg: #4a5570;
+        }
+
         .hud-mini {
           position: absolute; inset: 0; display: none;
-          background: linear-gradient(135deg, #1e2a4a, #0f1626);
-          color: #7ea6ff; font-size: 24px; text-align: center; line-height: 62px;
+          background: var(--mini-bg);
+          color: var(--accent); font-size: 24px; text-align: center; line-height: 62px;
           border-radius: 12px; cursor: pointer; user-select: none;
         }
         .hud-mini.show { display: block; }
 
         .hud {
           position: absolute; inset: 0; display: flex; flex-direction: column;
-          background: linear-gradient(160deg, #141b2e 0%, #0d1220 100%);
-          color: #dce3f5; border-radius: 14px; overflow: hidden;
+          background: var(--bg);
+          color: var(--fg); border-radius: 14px; overflow: hidden;
         }
 
         .hud-head {
           display: flex; align-items: center; gap: 8px;
           padding: 9px 12px; cursor: move; user-select: none;
-          background: rgba(255,255,255,.04); border-bottom: 1px solid rgba(255,255,255,.07);
+          background: var(--head-bg); border-bottom: 1px solid var(--head-border);
         }
-        .hud-head .ttl { font-size: 13px; font-weight: 600; letter-spacing: .5px; flex: 1; }
+        .hud-head .ttl { font-size: 13px; font-weight: 600; letter-spacing: .5px; flex: 1; color: var(--heading); }
         .hud-dot {
           width: 9px; height: 9px; border-radius: 50%; background: #5a6478;
           box-shadow: 0 0 6px currentColor; transition: .3s;
         }
         .hud-dot.run { background: #3ddc84; color: #3ddc84; }
         .hud-dot.hold { background: #ffb020; color: #ffb020; }
-        .hud-state { font-size: 11px; color: #8b96b8; margin-right: 4px; }
+        .hud-state { font-size: 11px; color: var(--muted); margin-right: 4px; }
         .hud-icon {
           width: 20px; height: 20px; line-height: 20px; text-align: center;
-          color: #8b96b8; border-radius: 5px; cursor: pointer; font-size: 13px;
+          color: var(--icon-fg); border-radius: 5px; cursor: pointer; font-size: 13px;
         }
-        .hud-icon:hover { background: rgba(255,255,255,.12); color: #fff; }
+        .hud-icon:hover { background: var(--icon-hover-bg); color: var(--icon-hover-fg); }
 
         .hud-card {
+          position: relative; overflow: hidden;
           margin: 10px 12px 6px; padding: 10px 12px;
-          background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.08);
+          background: var(--card-bg); border: 1px solid var(--card-border);
           border-radius: 10px;
         }
         .hud-course {
-          font-size: 13px; font-weight: 600; color: #fff;
+          font-size: 13px; font-weight: 600; color: var(--heading);
           white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
-        .hud-idx { font-size: 11px; color: #7ea6ff; float: right; }
+        .hud-idx { font-size: 11px; color: var(--accent); float: right; }
         .hud-bar-row { display: flex; align-items: center; gap: 8px; margin-top: 7px; }
-        .hud-bar-row .bar-tag { font-size: 10px; color: #8b96b8; width: 28px; flex-shrink: 0; }
-        .hud-bar-row .bar-num { font-size: 10px; color: #8b96b8; width: 46px; text-align: right; flex-shrink: 0; }
+        .hud-bar-row .bar-tag { font-size: 10px; color: var(--muted); width: 28px; flex-shrink: 0; }
+        .hud-bar-row .bar-num { font-size: 10px; color: var(--muted); width: 46px; text-align: right; flex-shrink: 0; }
         .hud-bar {
           flex: 1; height: 7px; border-radius: 4px;
-          background: rgba(255,255,255,.08); overflow: hidden;
+          background: var(--bar-bg); overflow: hidden;
         }
         .hud-fill {
           height: 100%; width: 0%; border-radius: 4px;
           background: linear-gradient(90deg, #3d8bff, #3ddc84);
           transition: width .6s ease;
         }
-        .hud-fill.done { background: linear-gradient(90deg, #ffd76e, #ffb020); }
+        .hud-fill.done {
+          background: linear-gradient(90deg, #22c55e, #3ddc84);
+          box-shadow: 0 0 10px rgba(61,220,132,.55);
+        }
         .hud-fill.work { background: linear-gradient(90deg, #e5484d, #ff8f93); }
-        .hud-meta { margin-top: 7px; font-size: 11px; color: #8b96b8; display: flex; gap: 12px; }
+        .hud-fill.work.done {
+          background: linear-gradient(90deg, #22c55e, #3ddc84);
+          box-shadow: 0 0 10px rgba(61,220,132,.55);
+        }
+
+        /* 完成烟花：一次性 burst，由 JS 触发 */
+        .confetti {
+          position: absolute; left: 50%; top: 40%; width: 6px; height: 10px;
+          border-radius: 2px; pointer-events: none; z-index: 5;
+          animation: confetti-burst 1.5s ease-out forwards;
+        }
+        @keyframes confetti-burst {
+          0%   { transform: translate(0,0) rotate(0deg); opacity: 1; }
+          70%  { opacity: 1; }
+          100% { transform: translate(var(--dx), var(--dy)) rotate(var(--rot)); opacity: 0; }
+        }
+        .hud-meta { margin-top: 7px; font-size: 11px; color: var(--muted); display: flex; gap: 12px; }
 
         .hud-answer {
           display: none; margin: 0 12px 6px; padding: 8px 10px; border-radius: 8px;
-          background: rgba(255,215,110,.10); border: 1px solid rgba(255,215,110,.45);
+          background: var(--ans-bg); border: 1px solid var(--ans-border);
           gap: 10px; align-items: baseline; font-size: 12.5px; line-height: 1.5;
         }
         .hud-answer.show { display: flex; }
-        #hud-ans-q { color: #ffd76e; font-weight: 600; flex-shrink: 0; }
-        #hud-ans-a { color: #fff; word-break: break-all; }
+        #hud-ans-q { color: var(--ans-q); font-weight: 600; flex-shrink: 0; }
+        #hud-ans-a { color: var(--ans-a); word-break: break-all; }
         .hud-btn.active { background: #b8860b; color: #fff; }
 
         .hud-feed-head {
           display: flex; align-items: center; justify-content: space-between;
-          padding: 2px 12px; font-size: 11px; color: #8b96b8;
+          padding: 2px 12px; font-size: 11px; color: var(--muted);
         }
         .hud-feed {
           flex: 1; margin: 4px 12px; padding: 6px 8px; min-height: 0;
           list-style: none; overflow-y: auto; font-size: 11.5px; line-height: 1.7;
-          background: rgba(0,0,0,.25); border-radius: 8px;
+          background: var(--feed-bg); border-radius: 8px;
         }
         .hud-feed::-webkit-scrollbar { width: 5px; }
-        .hud-feed::-webkit-scrollbar-thumb { background: rgba(255,255,255,.15); border-radius: 3px; }
-        .hud-feed li { color: #b9c4e0; border-bottom: 1px dashed rgba(255,255,255,.05); padding: 1px 0; }
-        .hud-feed li:last-child { border-bottom: none; color: #eaf0ff; }
+        .hud-feed::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: 3px; }
+        .hud-feed li { color: var(--feed-fg); border-bottom: 1px dashed var(--feed-line); padding: 1px 0; }
+        .hud-feed li:last-child { border-bottom: none; color: var(--feed-last); }
 
         .hud-ctl { display: flex; gap: 8px; padding: 0 12px; }
         .hud-btn {
           flex: 1; border: none; border-radius: 8px; color: #fff; cursor: pointer;
           padding: 8px 0; font-size: 12.5px; font-weight: 600; transition: .15s;
         }
-        .hud-btn:hover { filter: brightness(1.2); transform: translateY(-1px); }
+        .hud-btn:hover { filter: brightness(1.12); transform: translateY(-1px); }
         #btn-run { background: #2f7bff; }
         #btn-hold { background: #8b5cf6; }
-        #btn-halt { background: #4a5570; }
+        #btn-halt { background: var(--halt-bg); }
 
         .hud-modes {
           display: flex; align-items: center; justify-content: space-between;
@@ -615,7 +677,7 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
         .work-switch { display: flex; align-items: center; gap: 7px; font-size: 12px; cursor: pointer; user-select: none; }
         .work-switch input { display: none; }
         .work-switch .track {
-          width: 32px; height: 17px; border-radius: 9px; background: #3a4358;
+          width: 32px; height: 17px; border-radius: 9px; background: var(--track-off);
           position: relative; transition: .2s; flex-shrink: 0;
         }
         .work-switch .track::after {
@@ -624,35 +686,37 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
         }
         .work-switch input:checked + .track { background: #e5484d; }
         .work-switch input:checked + .track::after { left: 17px; }
-        .work-switch .wl { color: #b9c4e0; }
+        .work-switch .wl { color: var(--wl); }
         .work-switch.on .wl { color: #ff8f93; font-weight: 600; }
+        body[data-theme="light"] .work-switch.on .wl { color: #c23030; }
         #rate-select {
-          background: #1c2742; color: #dce3f5; border: 1px solid rgba(255,255,255,.15);
+          background: var(--sel-bg); color: var(--sel-fg); border: 1px solid var(--sel-border);
           border-radius: 7px; font-size: 12px; padding: 4px 8px; cursor: pointer;
         }
 
         .hud-sub { display: flex; gap: 8px; padding: 8px 12px 10px; }
         .hud-sub .hud-btn {
-          background: rgba(255,255,255,.08); color: #b9c4e0;
+          background: var(--sub-btn-bg); color: var(--sub-btn-fg);
           font-weight: 400; font-size: 11.5px; padding: 6px 0;
         }
-        .hud-sub .hud-btn:hover { color: #fff; }
+        .hud-sub .hud-btn:hover { color: var(--sub-btn-hover); }
+        .hud-sub .hud-btn.active { background: #b8860b; color: #fff; }
 
         .hud-cfg {
           display: none; position: absolute; top: 38px; left: 0; width: 100%; height: calc(100% - 38px);
-          background: #141b2e; z-index: 99; padding: 14px; overflow-y: auto;
+          background: var(--cfg-bg); z-index: 99; padding: 14px; overflow-y: auto;
         }
         .cfg-item { margin-bottom: 12px; }
-        .cfg-item label { display: block; margin-bottom: 4px; font-size: 11.5px; color: #8b96b8; }
+        .cfg-item label { display: block; margin-bottom: 4px; font-size: 11.5px; color: var(--muted); }
         .cfg-item input[type="text"], .cfg-item input[type="password"], .cfg-item select {
-          width: 100%; padding: 7px; border: 1px solid rgba(255,255,255,.15); border-radius: 6px;
-          background: #1c2742; color: #dce3f5; font-size: 12px;
+          width: 100%; padding: 7px; border: 1px solid var(--input-border); border-radius: 6px;
+          background: var(--input-bg); color: var(--fg); font-size: 12px;
         }
-        .cfg-item .chk { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #b9c4e0; cursor: pointer; }
+        .cfg-item .chk { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--feed-fg); cursor: pointer; }
         .cfg-foot { display: flex; justify-content: center; gap: 10px; margin-top: 10px; }
         .cfg-foot button { border: none; border-radius: 6px; padding: 6px 16px; font-size: 12px; cursor: pointer; color: #fff; }
         #cfg-save { background: #2f7bff; }
-        #cfg-close { background: #4a5570; }
+        #cfg-close { background: var(--halt-bg); }
       </style>
 
       <div class="hud-mini" id="hud-mini">🎓</div>
@@ -661,6 +725,7 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
           <span class="hud-dot" id="hud-dot"></span>
           <span class="ttl">雨课堂学习助手 Pro</span>
           <span class="hud-state" id="hud-state">待机</span>
+          <span class="hud-icon" id="theme-btn" title="切换深浅主题">🌙</span>
           <span class="hud-icon" id="help-btn" title="关于">?</span>
           <span class="hud-icon" id="mini-btn" title="最小化">—</span>
         </div>
@@ -778,6 +843,7 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
       cfgSave: doc.getElementById('cfg-save'),
       cfgClose: doc.getElementById('cfg-close'),
       helpBtn: doc.getElementById('help-btn'),
+      themeBtn: doc.getElementById('theme-btn'),
       miniBtn: doc.getElementById('mini-btn'),
       hudMini: doc.getElementById('hud-mini'),
     };
@@ -826,6 +892,23 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
       iframe.style.width = normalSize.width + 'px';
       iframe.style.height = normalSize.height + 'px';
     };
+
+    // ---- 主题切换（默认浅色；localStorage ykt_theme 持久化） ----
+    const applyTheme = name => {
+      const dark = name === 'dark';
+      doc.body.dataset.theme = dark ? 'dark' : 'light';
+      iframe.style.border = dark ? '1px solid rgba(255,255,255,.12)' : '1px solid rgba(30,60,120,.18)';
+      iframe.style.boxShadow = dark ? '0 12px 40px rgba(0,0,0,.45)' : '0 12px 40px rgba(20,40,80,.18)';
+      ui.themeBtn.innerText = dark ? '☀️' : '🌙';
+      ui.themeBtn.title = dark ? '切换到浅色模式' : '切换到深色模式';
+    };
+    applyTheme(Store.getTheme());
+    ui.themeBtn.addEventListener('click', () => {
+      const next = Store.getTheme() === 'dark' ? 'light' : 'dark';
+      Store.setTheme(next);
+      applyTheme(next);
+    });
+
     ui.miniBtn.addEventListener('click', enterMini);
     ui.hudMini.addEventListener('click', exitMini);
     ui.helpBtn.addEventListener('click', () => {
@@ -869,6 +952,24 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
       if (a === 'F') return '×（错）';
       return '选 ' + String(a).split('').join('·');
     };
+    // 完成庆祝：视频条/作业条首次满时放一次烟花；key 含 URL+条目数，换课自动重置
+    let celebrate = { key: '', v: false, w: false };
+    const burstConfetti = () => {
+      const card = doc.querySelector('.hud-card');
+      if (!card) return;
+      const colors = ['#ff6b6b', '#ffd76e', '#3ddc84', '#3d8bff', '#b78bff', '#ff9f43'];
+      for (let i = 0; i < 18; i++) {
+        const s = doc.createElement('i');
+        s.className = 'confetti';
+        const ang = Math.random() * Math.PI * 2, dist = 40 + Math.random() * 70;
+        s.style.setProperty('--dx', Math.cos(ang) * dist + 'px');
+        s.style.setProperty('--dy', (Math.sin(ang) * dist - 30) + 'px');
+        s.style.setProperty('--rot', (Math.random() * 720 - 360) + 'deg');
+        s.style.background = colors[i % colors.length];
+        card.appendChild(s);
+        setTimeout(() => s.remove(), 1600);
+      }
+    };
     const tick = () => {
       try {
         const hostDoc = window.parent.document;
@@ -903,20 +1004,31 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
         // 课程与进度（视频条 = 主条；作业条仅在作业代答开启时显示）
         const total = media.length || leaves.length;
         if (total) {
-          ui.course.innerText = course;
           const vAll = vDone === media.length && media.length > 0;
+          const wAll = works.length > 0 && wDone === works.length;
+          ui.course.innerText = course + (vAll ? ' ✅' : '');
           const pct = media.length ? Math.round(vDone / media.length * 100) : 0;
           ui.fill.style.width = (vAll ? 100 : pct) + '%';
           ui.fill.classList.toggle('done', vAll);
           ui.vnum.innerText = `${vDone}/${media.length}`;
-          ui.leaf.innerText = vAll ? '视频已刷完 🎉' : `视频 ${vDone}/${media.length}`;
-          ui.cur.innerText = activeIdx >= 0 ? `当前第 ${activeIdx + 1} 节` : '';
+          ui.leaf.innerText = vAll ? '视频已全部刷完 🎉' : `视频 ${vDone}/${media.length}`;
+          // "当前第 X 节"按媒体口径显示（与进度条分母一致），激活项非媒体时单独标注
+          const activeEl = activeIdx >= 0 ? leaves[activeIdx] : null;
+          const mediaIdx = activeEl ? media.indexOf(activeEl) : -1;
+          ui.cur.innerText = mediaIdx >= 0 ? `正在播第 ${mediaIdx + 1} 节视频`
+            : activeIdx >= 0 ? '当前为非视频课时' : '';
           ui.wrow.style.display = ansMode ? 'flex' : 'none';
           if (ansMode) {
             const wPct = works.length ? Math.round(wDone / works.length * 100) : 0;
             ui.wfill.style.width = wPct + '%';
+            ui.wfill.classList.toggle('done', wAll);
             ui.wnum.innerText = `${wDone}/${works.length}`;
           }
+          // 满条庆祝：视频条/作业条各自首次满时放一次烟花（换课/换页自动重置）
+          const ck = location.pathname + '|' + media.length + '|' + works.length;
+          if (ck !== celebrate.key) celebrate = { key: ck, v: false, w: false };
+          if (vAll && !celebrate.v) { celebrate.v = true; burstConfetti(); }
+          if (wAll && ansMode && !celebrate.w) { celebrate.w = true; burstConfetti(); }
         } else if (cards) {
           ui.course.innerText = `课程列表 · 共 ${cards} 门`;
           ui.fill.style.width = '0%';
@@ -3052,6 +3164,27 @@ ${ocrText}
   }
 
   // ---- 启动 ----
+  // ---- 对外只读接口：外部工具/agent 可查状态，不可操控 ----
+  window.__yktAPI = {
+    version: Config.version,
+    getStatus() {
+      try {
+        const batch = Store.getBatch();
+        return {
+          version: Config.version,
+          paused: Store.isPaused(),
+          answerMode: Store.isAnswerMode(),
+          assistMode: Store.isAssistMode(),
+          speed: Store.getSpeedPref(),
+          theme: Store.getTheme(),
+          url: location.pathname,
+          batch: batch ? { done: (batch.done || []).length, current: batch.current || '' } : null,
+          log: (window.__yktLog || []).slice(-10)
+        };
+      } catch (e) { return { version: Config.version, error: String(e) }; }
+    }
+  };
+
   async function boot() {
     if (Utils.inIframe()) return;
     // 防检测尽早在 document-start 生效：拦 visibility/blur 监听 + 隐藏 webdriver 痕迹
