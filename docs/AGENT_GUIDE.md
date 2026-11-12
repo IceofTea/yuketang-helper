@@ -62,8 +62,9 @@ watchdog 工作原理：轮询 `localhost:9222/json/list`，凡 URL 命中 `lms-
 - **批量账本** localStorage `ykt_batch`：`{courselistUrl,current,done,skipped,map,ts}`；存在即触发学习页自动 start；`map` 存 `courseId→cardKey`（选课进课时经 sessionStorage `ykt_expect_card` 回传建立）
 - **跨页恢复** sessionStorage `ykt_pending_auto_start`（per-tab，TTL 30min）：目录→播放页跳转后自动继续；`returnUrl` 为空时走页内连播
 - **漏刷回补**：`CourseRunner.handleNext` 扫到列表尾部时重抓侧边栏，找"未完成+媒体类+非当前项"的漏网 leaf 回补，全部干净才判课程完成
-- **HUD 仪表盘**：面板内 1.2s 自采集（侧边栏 leaf 完成数/激活 index/batch 进度/计时 `ykt_stats_t0`），不依赖 runner 上报
+- **HUD 仪表盘**：面板内 1.2s 自采集（侧边栏 leaf 分类统计/激活 index/batch 进度/计时 `ykt_stats_t0`），不依赖 runner 上报。进度条口径：leaf 按 innerText 前缀分类——`视频/音频` 进视频条、`作业` 进作业条、讨论/考试/图文不计入；作业条仅在作业代答开启时显示；视频全完成时主条金色拉满+🎉
 - **作业代答**：localStorage `ykt_answer_mode`，默认关。开启后（HUD 开关+confirm）白名单课程（`QUESTION_BANK`：26960231/26960232）的"作业" leaf 进入并按章节+题号取本地答案勾选提交；`null` 答案=缺失→整卷留空不提交；`autoAI` 开时非白名单走 `handleExerciseByAI` 原 AI 路径；考试 leaf 永不进入
+- **答题助手（半自动）**：sessionStorage `ykt_assist`（per-tab，关标签失效），默认关。开启后 `autoSelect` 停推进（停在本页不跳下一条），HUD 金色横幅逐题显示题库答案（`第X/Y题·答案：选A·B·D`，判断题 √/×；无题号 tab 时列全卷答案序号）；脚本只读不代点，由机主亲自勾选提交。与作业代答互斥（开一个自动关另一个）
 - **完成路径**：leaf 全部播完 → unclaim + `batch.done+=courseId` → 回 courselist → 随机选下一门 → 直到全完
 
 ## 3. 健康检查（30 秒判定是否在正常刷）
@@ -87,11 +88,13 @@ python tools\cdp.py "(function(){var v=document.querySelector('video');var lg=(w
 | leaf 锁定 `icon--suo` | 课程未开放 | 正常跳过；30min 后自动重试 |
 | "课程刷完啦"但还有未完成视频 | 旧版本无收尾复查 | 已修：`handleNext` 尾部漏网回补 |
 | 页面上两个面板/日志互相覆盖 | 新旧版本双注入 | reload 该标签；保证注入端只有一份 |
+| 进度条分母比侧边栏少 | 正常：只统计视频/音频 leaf | 无需处理 |
+| 答题助手横幅显示"未检测到作业页" | 当前不在作业 leaf | 让机主手动点进作业课时；横幅不会代点 |
 
 ## 5. 红线（不要做的事）
 
 1. **不要尝试绕过/自动完成腾讯验证码**——让机主手动滑，这是唯一合规路径
-2. **不要替机主开启「作业代答」/ AI 自动答题 / 自动评论**——涉及不可撤回提交；默认全关最安全。作业代答仅在机主明确要求并确认题库正确时由机主本人开启
+2. **不要替机主开启「作业代答」/ AI 自动答题 / 自动评论**——涉及不可撤回提交；默认全关最安全。作业代答仅在机主明确要求并确认题库正确时由机主本人开启。「答题助手」为只读提示，相对安全，但其开启按钮也有 confirm 弹窗——同样需要机主本人在浏览器里点确认
 3. **不要修改正在运行中的脚本上下文**（`__yktCore` 守卫会拒绝二次注入）；改代码必须走文件→重建 inject→重启 watchdog
 4. 不要动 `yuketang.js` 原版（若存在）；分发文件名必须是 `yuketang-helper.user.js`
 5. 并行数建议 ≤3 门更稳；7 门并发已实测可跑但验证码概率上升

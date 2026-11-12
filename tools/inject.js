@@ -5,7 +5,7 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
 // ==UserScript==
 // @name         雨课堂学习助手 Pro
 // @namespace    https://yuketang.cn/
-// @version      4.0.0
+// @version      4.1.0
 // @description  雨课堂课程视频自动连播、批量刷课、进度可视化面板，可选作业代答与 AI 辅助
 // @author       风之子 & community
 // @license      GPL3
@@ -58,7 +58,8 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
       reloadCount: 'ykt_reload',
       paused: 'ykt_paused',
       answerMode: 'ykt_answer_mode',
-      speedPref: 'ykt_speed_pref'
+      speedPref: 'ykt_speed_pref',
+      assist: 'ykt_assist'
     }
   };
 
@@ -381,6 +382,9 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
     // 答题模式：默认关（纯刷课），面板按钮+确认后开启；只对题库白名单课程生效
     isAnswerMode() { return localStorage.getItem(Config.storageKeys.answerMode) === '1'; },
     setAnswerMode(on) { on ? localStorage.setItem(Config.storageKeys.answerMode, '1') : localStorage.removeItem(Config.storageKeys.answerMode); },
+    // 答题助手（半自动）：只显示答案提示不代点；sessionStorage per-tab，关标签即失效
+    isAssistMode() { return sessionStorage.getItem(Config.storageKeys.assist) === '1'; },
+    setAssistMode(on) { on ? sessionStorage.setItem(Config.storageKeys.assist, '1') : sessionStorage.removeItem(Config.storageKeys.assist); },
     // 倍速偏好：'2'（默认）/ 'random' / '1' / '1.5' / '2.5' / '3'
     getSpeedPref() { return localStorage.getItem(Config.storageKeys.speedPref) || '2'; },
     setSpeedPref(v) { localStorage.setItem(Config.storageKeys.speedPref, String(v)); },
@@ -554,8 +558,11 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
           white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
         .hud-idx { font-size: 11px; color: #7ea6ff; float: right; }
+        .hud-bar-row { display: flex; align-items: center; gap: 8px; margin-top: 7px; }
+        .hud-bar-row .bar-tag { font-size: 10px; color: #8b96b8; width: 28px; flex-shrink: 0; }
+        .hud-bar-row .bar-num { font-size: 10px; color: #8b96b8; width: 46px; text-align: right; flex-shrink: 0; }
         .hud-bar {
-          height: 7px; margin-top: 8px; border-radius: 4px;
+          flex: 1; height: 7px; border-radius: 4px;
           background: rgba(255,255,255,.08); overflow: hidden;
         }
         .hud-fill {
@@ -563,7 +570,19 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
           background: linear-gradient(90deg, #3d8bff, #3ddc84);
           transition: width .6s ease;
         }
-        .hud-meta { margin-top: 6px; font-size: 11px; color: #8b96b8; display: flex; gap: 12px; }
+        .hud-fill.done { background: linear-gradient(90deg, #ffd76e, #ffb020); }
+        .hud-fill.work { background: linear-gradient(90deg, #e5484d, #ff8f93); }
+        .hud-meta { margin-top: 7px; font-size: 11px; color: #8b96b8; display: flex; gap: 12px; }
+
+        .hud-answer {
+          display: none; margin: 0 12px 6px; padding: 8px 10px; border-radius: 8px;
+          background: rgba(255,215,110,.10); border: 1px solid rgba(255,215,110,.45);
+          gap: 10px; align-items: baseline; font-size: 12.5px; line-height: 1.5;
+        }
+        .hud-answer.show { display: flex; }
+        #hud-ans-q { color: #ffd76e; font-weight: 600; flex-shrink: 0; }
+        #hud-ans-a { color: #fff; word-break: break-all; }
+        .hud-btn.active { background: #b8860b; color: #fff; }
 
         .hud-feed-head {
           display: flex; align-items: center; justify-content: space-between;
@@ -648,13 +667,23 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
         <div class="hud-card">
           <span class="hud-idx" id="hud-idx">—</span>
           <div class="hud-course" id="hud-course">等待识别课程…</div>
-          <div class="hud-bar"><div class="hud-fill" id="hud-fill"></div></div>
+          <div class="hud-bar-row">
+            <span class="bar-tag">视频</span>
+            <div class="hud-bar"><div class="hud-fill" id="hud-fill"></div></div>
+            <span class="bar-num" id="hud-vnum">—/—</span>
+          </div>
+          <div class="hud-bar-row" id="hud-wrow" style="display:none">
+            <span class="bar-tag">作业</span>
+            <div class="hud-bar"><div class="hud-fill work" id="hud-wfill"></div></div>
+            <span class="bar-num" id="hud-wnum">—/—</span>
+          </div>
           <div class="hud-meta">
-            <span id="hud-leaf">课时 —/—</span>
+            <span id="hud-leaf">—</span>
             <span id="hud-cur"></span>
             <span id="hud-time">⏱ 00:00:00</span>
           </div>
         </div>
+        <div class="hud-answer" id="hud-answer"><span id="hud-ans-q"></span><span id="hud-ans-a"></span></div>
         <div class="hud-feed-head"><span>运行日志</span><span class="hud-icon" id="feed-fold" title="折叠/展开">▾</span></div>
         <ul class="hud-feed" id="hud-feed"></ul>
         <div class="hud-ctl">
@@ -676,6 +705,7 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
           </select>
         </div>
         <div class="hud-sub">
+          <button class="hud-btn" id="btn-assist" title="半自动模式：暂停刷课推进，面板逐题显示题库答案，由你亲自勾选提交。仅做题，不刷视频。">📋 答题助手</button>
           <button class="hud-btn" id="btn-cfg">⚙ AI 设置</button>
           <button class="hud-btn" id="btn-wipe">🗑 清缓存</button>
           <button class="hud-btn" id="btn-refresh">↻ 重载</button>
@@ -715,6 +745,13 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
       course: doc.getElementById('hud-course'),
       idx: doc.getElementById('hud-idx'),
       fill: doc.getElementById('hud-fill'),
+      vnum: doc.getElementById('hud-vnum'),
+      wrow: doc.getElementById('hud-wrow'),
+      wfill: doc.getElementById('hud-wfill'),
+      wnum: doc.getElementById('hud-wnum'),
+      answerBar: doc.getElementById('hud-answer'),
+      ansQ: doc.getElementById('hud-ans-q'),
+      ansA: doc.getElementById('hud-ans-a'),
       leaf: doc.getElementById('hud-leaf'),
       cur: doc.getElementById('hud-cur'),
       time: doc.getElementById('hud-time'),
@@ -726,6 +763,7 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
       btnCfg: doc.getElementById('btn-cfg'),
       btnWipe: doc.getElementById('btn-wipe'),
       btnRefresh: doc.getElementById('btn-refresh'),
+      btnAssist: doc.getElementById('btn-assist'),
       workSwitch: doc.getElementById('work-switch'),
       workToggle: doc.getElementById('work-toggle'),
       rateSelect: doc.getElementById('rate-select'),
@@ -825,15 +863,27 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
       const p = n => String(n).padStart(2, '0');
       return `${p(Math.floor(s / 3600))}:${p(Math.floor(s / 60) % 60)}:${p(s % 60)}`;
     };
+    const fmtAns = a => {
+      if (!a) return '题库缺失';
+      if (a === 'T') return '√（对）';
+      if (a === 'F') return '×（错）';
+      return '选 ' + String(a).split('').join('·');
+    };
     const tick = () => {
       try {
         const hostDoc = window.parent.document;
         const leaves = [...hostDoc.querySelectorAll('.nav-item-leaf-box')];
-        const total = leaves.length;
-        const doneN = leaves.filter(el => el.querySelector('.icon-yuanquangou-mianzhuang')).length;
+        const isDoneEl = el => !!el.querySelector('.icon-yuanquangou-mianzhuang');
+        const textOf = el => (el.innerText || '').trim();
+        // 分类统计：视频/音频 vs 作业 vs 其它（讨论/考试/图文不计入）
+        const media = leaves.filter(el => /^(视频|音频)/.test(textOf(el)));
+        const works = leaves.filter(el => /^作业/.test(textOf(el)));
+        const vDone = media.filter(isDoneEl).length;
+        const wDone = works.filter(isDoneEl).length;
         const activeIdx = leaves.findIndex(el => el.firstChild && el.firstChild.classList && el.firstChild.classList.contains('is-active'));
         const batch = Store.getBatch();
         const cards = hostDoc.querySelectorAll('.lesson-cardS').length;
+        const ansMode = Store.isAnswerMode();
         // 课程名：batch.map 卡片文本最可靠 → title 去站点后缀 → 兜底
         let course = '';
         const cidM = location.pathname.match(/lms-graph\/(\d+)/) || location.pathname.match(/\/lms\/[^/]+\/(\d+)/);
@@ -850,16 +900,29 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
         const working = ui.btnRun.innerText !== '▶ 开始';
         ui.dot.className = 'hud-dot ' + (paused ? 'hold' : working ? 'run' : '');
         ui.state.innerText = paused ? '已暂停' : working ? '运行中' : '待机';
-        // 课程与进度
+        // 课程与进度（视频条 = 主条；作业条仅在作业代答开启时显示）
+        const total = media.length || leaves.length;
         if (total) {
           ui.course.innerText = course;
-          const pct = Math.round(doneN / total * 100);
-          ui.fill.style.width = pct + '%';
-          ui.leaf.innerText = `课时 ${doneN}/${total}`;
+          const vAll = vDone === media.length && media.length > 0;
+          const pct = media.length ? Math.round(vDone / media.length * 100) : 0;
+          ui.fill.style.width = (vAll ? 100 : pct) + '%';
+          ui.fill.classList.toggle('done', vAll);
+          ui.vnum.innerText = `${vDone}/${media.length}`;
+          ui.leaf.innerText = vAll ? '视频已刷完 🎉' : `视频 ${vDone}/${media.length}`;
           ui.cur.innerText = activeIdx >= 0 ? `当前第 ${activeIdx + 1} 节` : '';
+          ui.wrow.style.display = ansMode ? 'flex' : 'none';
+          if (ansMode) {
+            const wPct = works.length ? Math.round(wDone / works.length * 100) : 0;
+            ui.wfill.style.width = wPct + '%';
+            ui.wnum.innerText = `${wDone}/${works.length}`;
+          }
         } else if (cards) {
           ui.course.innerText = `课程列表 · 共 ${cards} 门`;
           ui.fill.style.width = '0%';
+          ui.fill.classList.remove('done');
+          ui.vnum.innerText = '—/—';
+          ui.wrow.style.display = 'none';
           ui.leaf.innerText = '等待选课';
           ui.cur.innerText = '';
         }
@@ -874,8 +937,45 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
         // 计时
         const t0 = Number(sessionStorage.getItem('ykt_stats_t0') || 0);
         ui.time.innerText = '⏱ ' + (t0 ? fmtDur(Date.now() - t0) : '00:00:00');
-        // 作业代答警示态
-        ui.workSwitch.classList.toggle('on', Store.isAnswerMode());
+        // 作业代答警示态 + 答题助手激活态
+        ui.workSwitch.classList.toggle('on', ansMode);
+        const assist = Store.isAssistMode();
+        ui.btnAssist.classList.toggle('active', assist);
+        // 答题助手横幅：只读提示，不代点
+        if (!assist) {
+          ui.answerBar.classList.remove('show');
+        } else {
+          ui.answerBar.classList.add('show');
+          const bk = cidM ? QUESTION_BANK[cidM[1]] : null;
+          if (!bk) {
+            ui.ansQ.innerText = '无题库';
+            ui.ansA.innerText = '本课程不在白名单（仅科研伦理/生物医药）';
+          } else {
+            const root = CourseDom.getExerciseContainer();
+            if (!root) {
+              ui.ansQ.innerText = '待进入';
+              ui.ansA.innerText = '未检测到作业页——请手动进入本课程作业课时';
+            } else {
+              const resolved = bankAnswersFor(bk, CourseDom.getActiveLeafTitle());
+              if (!resolved) {
+                ui.ansQ.innerText = '未识别';
+                ui.ansA.innerText = '未能从课时标题定位章节，题库无匹配';
+              } else {
+                const tabs = CourseDom.getExerciseQuestionTabs(root);
+                if (tabs.length) {
+                  const ai = tabs.findIndex(t => /active|current|selected|is-active/.test(t.className));
+                  const idx = ai >= 0 ? ai : 0;
+                  const a = resolved.answers[idx];
+                  ui.ansQ.innerText = `第 ${idx + 1}/${Math.max(tabs.length, resolved.answers.length)} 题`;
+                  ui.ansA.innerText = a ? `答案：${fmtAns(a)}` : '题库缺此题，请自行作答';
+                } else {
+                  ui.ansQ.innerText = `全卷 ${resolved.answers.length} 题`;
+                  ui.ansA.innerText = resolved.answers.map((a, i) => `${i + 1}.${a ? fmtAns(a) : '?'}`).join('　');
+                }
+              }
+            }
+          }
+        }
       } catch (_) { }
     };
     setInterval(tick, 1200);
@@ -934,7 +1034,7 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
       running = false;
     };
 
-    // ---- 作业代答开关（原"做题一体"，警示化命名） ----
+    // ---- 作业代答开关（全自动：混在刷课流程里自动勾选并提交） ----
     ui.workToggle.checked = Store.isAnswerMode();
     ui.workToggle.onchange = () => {
       if (!ui.workToggle.checked) {
@@ -943,15 +1043,36 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
         return;
       }
       const ok = window.parent.confirm(
-        '⚠ 开启「作业代答」？\n\n'
-        + '脚本将自动勾选并【提交】以下两门课的课后作业：\n'
+        '⚠ 开启「作业代答」（全自动）？\n\n'
+        + '脚本将在刷课过程中自动勾选并【提交】以下两门课的课后作业：\n'
         + '· 科研伦理与学术规范（第一~六章）\n'
         + '· 生物医药实验室安全知识（第一~九部分）\n\n'
         + '提交后无法修改！题库如有缺题会留空不提交并提示。\n'
-        + '其它课程与期末考试不受影响。\n\n确认开启？');
+        + '其它课程与期末考试不受影响。与「答题助手」（半自动）互斥。\n\n确认开启？');
       if (!ok) { ui.workToggle.checked = false; return; }
+      if (Store.isAssistMode()) { Store.setAssistMode(false); log('已自动关闭答题助手（与作业代答互斥）'); }
       Store.setAnswerMode(true);
       warn('作业代答已开启：白名单课程作业将自动勾选并提交');
+    };
+
+    // ---- 答题助手（半自动：只显示答案提示，由你亲自勾选提交；刷课推进暂停） ----
+    ui.btnAssist.onclick = () => {
+      if (Store.isAssistMode()) {
+        Store.setAssistMode(false);
+        log('答题助手已关闭。点「▶ 开始」恢复刷课推进');
+        return;
+      }
+      const ok = window.parent.confirm(
+        '📋 开启「答题助手」（半自动）？\n\n'
+        + '这是只做题的独立模式，与刷视频互不干扰：\n'
+        + '· 刷课推进会暂停（不会自动跳到下一节）\n'
+        + '· 你手动进入作业课时，面板金色横幅逐题显示题库答案\n'
+        + '· 由你亲自勾选并提交——脚本只读不代点\n'
+        + '· 与「作业代答」（全自动混刷）互斥，已开会自动关闭\n\n确认开启？');
+      if (!ok) return;
+      if (Store.isAnswerMode()) { Store.setAnswerMode(false); ui.workToggle.checked = false; log('已自动关闭作业代答（与答题助手互斥）'); }
+      Store.setAssistMode(true);
+      log('📋 答题助手已开启：推进暂停，请手动进入作业课时，看金色横幅抄答案');
     };
 
     // ---- 倍速偏好 ----
@@ -2393,6 +2514,7 @@ ${ocrText}
 
     async autoSelect() {
       if (Store.isPaused()) { this.panel.log('已暂停，停止推进下一条'); return; }
+      if (Store.isAssistMode()) { this.panel.log('答题助手模式：停在本页，答完请关闭助手继续刷课'); return; }
       // 优先侧边栏连播：页内直接点下一条，不整页回目录（避免重复加载和重复触发验证码）
       this.source = CourseDom.getAllScourse(); // 得到课程列表
       if (this.source && this.source.length) {
