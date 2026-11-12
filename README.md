@@ -20,43 +20,17 @@
 - **防检测**：倍速可调（固定/拟人随机）、延时抖动、防切屏拦截、弹窗自动关闭、隐藏 webdriver 标记
 - **无人值守**：未解锁课时定时重试、watchdog 自动补注入、暂停/停止/恢复齐全
 
-## 使用方式 A：.exe 一键启动（最省事，推荐）
+## 使用方式 A：`一键刷课.exe`（最省事，推荐）
 
-**双击 `yuketang-helper.exe`**——免 Python 免安装，控制台窗口自动完成：
+**双击 `一键刷课.exe`**——免 Python 免安装，控制台窗口自动完成：
 
 1. 检测调试端口，没开就自动启动带调试的 Edge/Chrome 并打开课程列表页
-2. 等你在浏览器里登录雨课堂
+2. **等你在浏览器里登录雨课堂**——未登录时会持续等待（控制台显示 `waiting for login`），登录成功后自动继续
 3. 检测到课程页后自动注入面板、弹选课界面
 
 之后保持这个控制台窗口开着即可（它就是 watchdog）。
 
-## 使用方式 A2：`一键启动.bat`（需 Python 3.8+）
-
-与 exe 同等效果的脚本版——**双击 `一键启动.bat`** 自动完成：
-
-1. 检测调试端口，没开就用 `--remote-debugging-port=9222` 启动 Edge
-2. 检查 Python 依赖（缺 `websockets` 自动装）
-3. 用最新脚本重建注入文件
-4. 后台启动 watchdog（页面每次刷新自动补注入）
-
-然后在弹出的浏览器窗口里：
-
-1. 登录雨课堂，打开课程列表页 `…/pro/courselist`
-2. **选课面板自动弹出**——勾选想刷的课（默认全选未刷），点「打开所选」；或等 30 秒自动开全部未刷
-3. 每门课一个标签自动开刷，互不干扰
-
-> 要求：Windows + Edge/Chrome + Python（`py` 命令可用）。watchdog 控制台窗口别关，关了新页面就不再自动注入。
-
-### .bat 跑不了？按提示对号入座
-
-| 报错 | 原因 | 解决 |
-|---|---|---|
-| `No usable Python found` | 没装 Python 或版本 <3.8 | python.org 下载安装，**勾选 "Add python.exe to PATH"** |
-| `Edge / Chrome not found` | 浏览器装在非标准路径 | 手动带参数启动：`浏览器.exe --remote-debugging-port=9222` 后重跑 |
-| `Debug port still not reachable` | 已有浏览器实例没带调试参数 | **先关掉该浏览器所有窗口**再重跑（复用旧实例会吞掉调试参数） |
-| `pip install failed` | 没网/被墙 | 手动跑 `py -m pip install websockets` 后重跑 |
-
-其它情况：macOS/Linux 用不了 .bat——改用下方**油猴方式**（跨平台）；Windows 7 太老不建议，用油猴。
+> 要求：Windows + Edge/Chrome。macOS/Linux 用不了 exe——改用下方**油猴方式**（跨平台）。
 
 ## 使用方式 B：油猴（备选）
 
@@ -64,7 +38,7 @@
 2. 新建脚本 → 粘贴 `yuketang-helper.user.js` 全文 → Ctrl+S 保存启用
 3. 登录雨课堂打开**课程列表页**——面板出现、选课流程同上
 
-> 油猴方式不需要 .bat/watchdog，但也没有崩溃自动补注入；页面崩了手动刷新即可。
+> 油猴方式不需要 exe/watchdog，但也没有崩溃自动补注入；页面崩了手动刷新即可。
 
 ## 使用方式 C：交给 AI agent 代管
 
@@ -99,10 +73,9 @@
 ## 目录结构
 
 ```
-yuketang-helper.exe       # ★ 单文件免安装启动器（9.5MB，双击即用）
+一键刷课.exe              # ★ 单文件免安装启动器（12.9MB，双击即用）
 yuketang-helper.user.js   # 脚本本体（油猴/CDP 注入同源）
 launcher.py               # 一体化启动器源码（exe 由它打包）
-一键启动.bat              # 一键启动脚本版（需 Python 3.8+）
 README.md
 docs/
   使用指南.md              # 详细图文说明

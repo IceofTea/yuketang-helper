@@ -20,7 +20,7 @@ COURSELIST = 'https://yjsy-fjnu.yuketang.cn/pro/courselist'
 PATTERNS = ('yuketang.cn/ai-workspace/lms-graph/', 'yuketang.cn/pro/lms/', 'yuketang.cn/pro/courselist')
 LOGPATH = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), 'ykt-launcher.log')
 
-CHECK_JS = "({ifr:!!document.querySelector('#ykt-hud-frame'),loaded:!!window.__yktCore,rs:document.readyState,u:location.href.slice(-60)})"
+CHECK_JS = "({ifr:!!document.querySelector('#ykt-hud-frame'),loaded:!!window.__yktCore,rs:document.readyState,u:location.href.slice(-60),login:(/passport|login|signin/i.test(location.hostname+location.pathname)||/登录|登陆/.test(document.title||'')||(!document.querySelector('.lesson-cardS, .leaf-detail, video, audio, .catalog-box')&&!!document.querySelector('img[src*=qr], [class*=qrcode], [class*=login-box], [class*=login-dialog], [class*=login-wrap], .xt-login')))})"
 LOG_JS = """(function(){
 if(window.__yktLog&&window.__yktLog.length)return{log:window.__yktLog.slice(-8).join(' | ')};
 var f=document.querySelector('#ykt-hud-frame');
@@ -153,6 +153,12 @@ async def watchdog_loop(inject):
             if not isinstance(st, dict):
                 continue
             key = url
+            if st.get('login'):
+                # 登录墙：跳过注入，等用户登录后页面出现课程元素再继续
+                if seen.get(key) != 'waiting-login':
+                    log('waiting for login - %s' % url[-55:])
+                    seen[key] = 'waiting-login'
+                continue
             if st.get('ifr'):
                 if seen.get(key) != 'alive':
                     lg = await ev(wsu, LOG_JS)

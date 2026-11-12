@@ -216,6 +216,14 @@
       const p = location.pathname;
       return /^\/pro\/(courselist|portal|index)?\/?$/.test(p) || p === '/pro' || p === '/pro/';
     },
+    // 登录墙检测：URL/标题带登录特征，或页面无课程元素但有登录组件（扫码二维码/登录框）
+    looksLikeLoginPage() {
+      if (/passport|login|signin|sign-in/i.test(location.hostname + location.pathname)) return true;
+      if (/登录|登陆/.test(document.title || '')) return true;
+      const hasCourse = !!document.querySelector('.lesson-cardS, .leaf-detail, video, audio, .catalog-box');
+      if (hasCourse) return false;
+      return !!document.querySelector('img[src*="qr"], [class*="qrcode"], [class*="QRCode"], [class*="login-box"], [class*="login-dialog"], [class*="login-modal"], [class*="login-wrap"], .xt-login');
+    },
     // 从课程列表页挑选一门未完成课程卡片，返回 {el, key}（本站卡片为 div 点击，无 href）
     cardKey(el) {
       return (el.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 80);
@@ -3663,6 +3671,22 @@ ${ocrText}
         panel.log('⏻ 助手已关闭：所有标签不会自动弹窗/刷课（你可能误触了顶部 ⏻ 电源键，再点一下恢复）。');
       } else if (paused) {
         panel.log('本标签已暂停——点「▶ 开始」恢复刷课，或在选课面板点「⏹ 退出批量」彻底退出');
+      } else if (Utils.looksLikeLoginPage()) {
+        // 登录墙：不弹选课不刷课，每 5s 检测登录态，登录成功后自动重载继续（最长等 60 分钟）
+        panel.log('⏳ 未登录——请先在页面完成登录（账号密码/扫码），登录成功后自动继续。最长等 60 分钟。');
+        const loginT0 = Date.now();
+        const loginChk = setInterval(() => {
+          if (!Utils.looksLikeLoginPage()) {
+            clearInterval(loginChk);
+            panel.log('✔ 检测到已登录，重新加载页面继续…');
+            setTimeout(() => location.reload(), 1500);
+            return;
+          }
+          if (Date.now() - loginT0 > 60 * 60000) {
+            clearInterval(loginChk);
+            panel.log('等待登录超时（60分钟）——登录后请手动刷新页面');
+          }
+        }, 5000);
       } else if (batch && Utils.isCourseListPage()) {
         const waitMs = (batch.nextRetryTs || 0) - Date.now();
         if (waitMs > 0) {
