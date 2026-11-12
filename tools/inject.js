@@ -113,22 +113,38 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
     Config.playbackRate = Config.speedPool[0];
   }
 
-  // leaf 标题解析章节（"作业 第一章课后习题" → "第一章"），返回对应答案序列
+  // leaf 标题解析章节，返回对应答案序列。
+  // 匹配链：① 标题"第X章/部分/次/节/单元"或仅"第X" → 探测题库实际 key 格式
+  //        ② 标题无章节号（如"作业 习题"）→ workIndex 兜底：按本 leaf 在作业 leaf 中的序号对齐章节顺序
+  //        ③ 都不行 → 合并全卷（标注"(整卷顺序·未定位章节)"，仅作展示参照）
   const CN_NUM = { '一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9, '十': 10 };
-  function bankAnswersFor(bank, leafTitle) {
-    const m = (leafTitle || '').match(/第([一二三四五六七八九十\d]+)\s*(章|部分|节|单元)/);
+  function bankAnswersFor(bank, leafTitle, workIndex = -1) {
+    const keys = Object.keys(bank.chapters);
+    const m = (leafTitle || '').match(/第([一二三四五六七八九十]+|\d+)\s*(?:次|章|部分|节|单元)?/);
     if (m) {
       const n = CN_NUM[m[1]] || parseInt(m[1], 10);
       if (n) {
-        const key = `第${'一二三四五六七八九十'[n - 1]}${m[2] === '节' || m[2] === '单元' ? '章' : m[2]}`;
-        if (bank.chapters[key]) return { key, answers: bank.chapters[key] };
+        const cn = '一二三四五六七八九十'[n - 1];
+        // 探测题库实际使用的 key 格式（第X章 / 第X部分 / 第X次 / 数字）
+        for (const suffix of ['章', '部分', '次', '节', '单元']) {
+          const key = `第${cn}${suffix}`;
+          if (bank.chapters[key]) return { key, answers: bank.chapters[key] };
+        }
+        for (const k of [String(n), String(n).padStart(2, '0')]) {
+          if (bank.chapters[k]) return { key: k, answers: bank.chapters[k] };
+        }
+        // 识别到了章节号但题库没有这一章：不乱猜，留空
+        return null;
       }
-      // 识别到了章节但题库没有这章：不乱猜，留空
-      return null;
     }
-    // 标题无章节信息（如"作业 习题"）：全部章节按序合并成单序列，按题号对齐
+    // 标题无章节号：按本作业 leaf 的序号对齐章节顺序（workIndex 由调用方算出）
+    if (workIndex >= 0 && workIndex < keys.length) {
+      const key = keys[workIndex];
+      return { key: key + '(按序号)', answers: bank.chapters[key] };
+    }
+    // 最后手段：全部章节按序合并——仅供整卷对照，提示未定位章节
     const merged = [].concat(...Object.values(bank.chapters));
-    return merged.length ? { key: '(整卷顺序)', answers: merged } : null;
+    return merged.length ? { key: '(整卷顺序·未定位章节)', answers: merged } : null;
   }
 
   const Utils = {
@@ -1068,20 +1084,20 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
               ui.ansQ.innerText = '待进入';
               ui.ansA.innerText = '未检测到作业页——请手动进入本课程作业课时';
             } else {
-              const resolved = bankAnswersFor(bk, CourseDom.getActiveLeafTitle());
+              const resolved = bankAnswersFor(bk, CourseDom.getActiveLeafTitle(), CourseDom.getActiveWorkIndex());
               if (!resolved) {
                 ui.ansQ.innerText = '未识别';
-                ui.ansA.innerText = '未能从课时标题定位章节，题库无匹配';
+                ui.ansA.innerText = '未能从课时标题或序号定位章节，题库无匹配';
               } else {
                 const tabs = CourseDom.getExerciseQuestionTabs(root);
                 if (tabs.length) {
                   const ai = tabs.findIndex(t => /active|current|selected|is-active/.test(t.className));
                   const idx = ai >= 0 ? ai : 0;
                   const a = resolved.answers[idx];
-                  ui.ansQ.innerText = `第 ${idx + 1}/${Math.max(tabs.length, resolved.answers.length)} 题`;
+                  ui.ansQ.innerText = `${resolved.key} · 第 ${idx + 1}/${Math.max(tabs.length, resolved.answers.length)} 题`;
                   ui.ansA.innerText = a ? `答案：${fmtAns(a)}` : '题库缺此题，请自行作答';
                 } else {
-                  ui.ansQ.innerText = `全卷 ${resolved.answers.length} 题`;
+                  ui.ansQ.innerText = `${resolved.key} · 共 ${resolved.answers.length} 题`;
                   ui.ansA.innerText = resolved.answers.map((a, i) => `${i + 1}.${a ? fmtAns(a) : '?'}`).join('　');
                 }
               }
@@ -1430,6 +1446,13 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
     },
     getActiveLeafTitle() {
       return document.querySelector('.leaf-item.is-active')?.innerText?.replace(/\s+/g, ' ').trim() || '';
+    },
+    // 当前激活 leaf 在"作业"类 leaf 中的序号（0 基），用于题库章节序号兜底；-1 = 非作业或未激活
+    getActiveWorkIndex() {
+      const leaves = [...(this.getAllScourse() || [])];
+      const works = leaves.filter(el => /^\s*作业/.test((el.innerText || '').trim()));
+      const ai = leaves.findIndex(el => el.firstChild && el.firstChild.classList && el.firstChild.classList.contains('is-active'));
+      return ai >= 0 ? works.indexOf(leaves[ai]) : -1;
     },
     getExerciseDocument() {
       const localHasExercise = document.querySelector('#app .container-body .container-problem')
@@ -2838,7 +2861,7 @@ ${ocrText}
       }
 
       const leafTitle = CourseDom.getActiveLeafTitle();
-      const resolved = bankAnswersFor(bank, leafTitle);
+      const resolved = bankAnswersFor(bank, leafTitle, CourseDom.getActiveWorkIndex());
       if (!resolved) {
         this.panel.log(`题库未覆盖本作业（${leafTitle || route.leafId}），留空不提交`);
         return true;
