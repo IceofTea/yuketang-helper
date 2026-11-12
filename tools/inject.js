@@ -1091,7 +1091,7 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
       clearInterval(pkTimer);
       ui.pkOpen.classList.remove('urgent');
       sessionStorage.removeItem(PICKER_KEY);
-      sessionStorage.setItem(PICKER_DONE, '1');
+      sessionStorage.setItem(PICKER_DONE, String(Date.now())); // 冷却时间戳：10min 内不重复弹
     };
 
     const openCourses = courses => {
@@ -1110,7 +1110,7 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
       } else if (opened) {
         ui.pkTip.innerText = `已打开 ${opened} 个新标签，各自将自动开始刷课`;
         ui.pkOpen.classList.remove('urgent');
-        sessionStorage.setItem(PICKER_DONE, '1');
+        sessionStorage.setItem(PICKER_DONE, String(Date.now()));
       }
       return opened;
     };
@@ -1167,8 +1167,10 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
       ui.pkOpen.classList.remove('urgent');
     });
 
-    // 课程列表页：首次检测到课程卡片 → 自动弹选课面板（30s 倒计时，本次会话只弹一次）
-    if (Utils.isCourseListPage() && !sessionStorage.getItem(PICKER_DONE)) {
+    // 课程列表页：检测到课程卡片 → 自动弹选课面板（30s 倒计时；关闭后 10min 冷却不重弹）
+    const PICKER_COOLDOWN = 10 * 60 * 1000;
+    const pickerCooledDown = () => (Date.now() - Number(sessionStorage.getItem(PICKER_DONE) || 0)) > PICKER_COOLDOWN;
+    if (Utils.isCourseListPage() && pickerCooledDown()) {
       let popped = false;
       const popTimer = setInterval(() => {
         if (popped) { clearInterval(popTimer); return; }
@@ -3500,7 +3502,19 @@ ${ocrText}
             localStorage.setItem(Config.storageKeys.batch, JSON.stringify(batch));
           }
           panel.log('批量模式：自动挑选下一门未完成课程…');
-          setTimeout(() => runCourseList(panel).catch(e => { panel.log('选课异常：' + (e.message || e)); panel.resetStartButton('开始刷课'); }), 1500);
+          // 等选课面板完成其生命周期（弹出→倒计时/手动操作→关闭），再自动选课
+          const kickT0 = Date.now();
+          const kickOff = () => {
+            const doneTs = Number(sessionStorage.getItem('ykt_picker_done') || 0);
+            const pickerShowing = window.__yktPickerActive && window.__yktPickerActive();
+            const pickerPending = (Date.now() - doneTs) > 10 * 60 * 1000; // 冷却中=即将弹/还没弹过
+            if ((pickerShowing || pickerPending) && Date.now() - kickT0 < 90000) {
+              setTimeout(kickOff, 2000);
+              return;
+            }
+            runCourseList(panel).catch(e => { panel.log('选课异常：' + (e.message || e)); panel.resetStartButton('开始刷课'); });
+          };
+          setTimeout(kickOff, 1500);
         }
       } else if (batch && Utils.isSupportedLearningPage()) {
         panel.log('批量模式：自动继续刷课');
