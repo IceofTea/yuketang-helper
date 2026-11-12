@@ -224,7 +224,7 @@
       // 等待卡片渲染（SPA 异步加载）
       await Utils.poll(() => document.querySelectorAll('.lesson-cardS, a[href*="/pro/lms"], a[href*="studycontent"]').length > 0, { interval: 500, timeout: 15000 });
       const batch = Store.getBatch() || {};
-      const doneSet = new Set([...(batch.done || []), ...(batch.skipped || []), ...Store.claimedCardKeys()]);
+      const doneSet = new Set([...(batch.done || []), ...(batch.skipped || []), ...Store.claimedCardKeys(), ...Store.getDoneSet()]);
       const cards = [...document.querySelectorAll('.lesson-cardS')];
       const pool = [];
       for (const card of cards) {
@@ -252,7 +252,7 @@
     // 提取课程列表：优先 Vue tableData2（含 classroom_id），fallback 卡片 DOM 对齐
     getCourseList() {
       const batch = Store.getBatch() || {};
-      const doneSet = new Set([...(batch.done || []), ...(batch.skipped || [])]);
+      const doneSet = new Set([...(batch.done || []), ...(batch.skipped || []), ...Store.getDoneSet()]);
       const claims = Store.getClaims();
       const me = Store.getTabId();
       // ① Vue tableData2：含 classroom_id/course_name，能直接构造目录页 URL
@@ -427,6 +427,19 @@
       if (!b[listName].includes(key)) b[listName].push(key);
       b.ts = Date.now();
       localStorage.setItem(Config.storageKeys.batch, JSON.stringify(b));
+      if (listName === 'done') this.markDone(key); // 持久完成记录：退出批量也不丢
+    },
+    // 持久完成集合（独立于 batch 会话，clearBatch 不清）——picker「已完成」徽标的可靠来源
+    getDoneSet() { return new Set(Utils.safeJSONParse(localStorage.getItem('ykt_course_done'), '[]')); },
+    markDone(keys) {
+      const set = this.getDoneSet();
+      for (const k of [].concat(keys)) if (k) set.add(String(k));
+      localStorage.setItem('ykt_course_done', JSON.stringify([...set]));
+    },
+    unmarkDone(key) {
+      const set = this.getDoneSet();
+      set.delete(String(key));
+      localStorage.setItem('ykt_course_done', JSON.stringify([...set]));
     },
     clearBatch() { localStorage.removeItem(Config.storageKeys.batch); },
     setPaused() { sessionStorage.setItem(Config.storageKeys.paused, '1'); },
@@ -1085,6 +1098,18 @@
         const badge = doc.createElement('span');
         badge.className = 'pk-badge ' + (c.done ? 'done' : c.claimed ? 'busy' : 'todo');
         badge.innerText = c.done ? '已完成' : c.claimed ? '进行中' : '未刷';
+        badge.title = '点击手动切换「已完成/未完成」标记（本机记录，纠正误标用）';
+        badge.style.cursor = 'pointer';
+        badge.addEventListener('click', e => {
+          e.preventDefault();
+          e.stopPropagation();
+          c.done = !c.done;
+          if (c.done) Store.markDone(c.cid); else Store.unmarkDone(c.cid);
+          badge.className = 'pk-badge ' + (c.done ? 'done' : c.claimed ? 'busy' : 'todo');
+          badge.innerText = c.done ? '已完成' : c.claimed ? '进行中' : '未刷';
+          cb.checked = !c.done && !c.claimed;
+          savePkChecks();
+        });
         row.append(cb, a, badge);
         ui.pkList.appendChild(row);
       }
@@ -1102,18 +1127,29 @@
       // batch 存在才能让新标签自动开刷（boot 的 batch+学习页 分支）
       if (!Store.getBatch()) Store.setBatch(location.href, '');
       let opened = 0, blocked = 0;
+      const openedCids = [];
       for (const c of courses) {
         try {
           const w = window.open(c.url, '_blank');
-          w ? opened++ : blocked++;
+          if (w) { opened++; openedCids.push(c.cid); } else blocked++;
         } catch (_) { blocked++; }
       }
+      // 已开的课程取消勾选——浏览器通常一次点击只放行 1 个弹窗，
+      // 再点「打开所选」自动接着开剩余勾选课程
+      if (openedCids.length) {
+        for (const b of ui.pkList.querySelectorAll('input[type=checkbox]')) {
+          if (openedCids.includes(b.dataset.cid)) b.checked = false;
+        }
+        savePkChecks();
+      }
       if (blocked) {
-        ui.pkTip.innerText = `已开 ${opened} 个，被浏览器拦截 ${blocked} 个——👉 点击下方闪动的蓝色按钮（手动点击=放行），或点地址栏 🚫 图标允许本站弹窗`;
+        ui.pkTip.innerText = `已开 ${opened} 个，浏览器拦了 ${blocked} 个（一次点击通常只放行 1 个弹窗）——👉 再点闪动的蓝色按钮继续开下一个，或逐个点击课程名链接`;
         ui.pkOpen.classList.add('urgent');
+        ui.pkOpen.innerText = `继续打开（剩 ${blocked}）`;
       } else if (opened) {
         ui.pkTip.innerText = `已打开 ${opened} 个新标签，各自将自动开始刷课`;
         ui.pkOpen.classList.remove('urgent');
+        ui.pkOpen.innerText = '打开所选';
         sessionStorage.setItem(PICKER_DONE, String(Date.now()));
       }
       return opened;
@@ -1131,6 +1167,8 @@
       renderPicker();
       ui.pkPane.classList.add('show');
       ui.pkOpen.classList.remove('urgent');
+      ui.pkOpen.innerText = '打开所选';
+      refreshQuitBtn();
       touchPicker();
       clearInterval(pkTimer);
       if (autoSecs > 0) {
@@ -1157,12 +1195,29 @@
       ui.pkPane.classList.contains('show') ? hidePicker() : showPicker(0);
     });
     ui.pkClose.addEventListener('click', hidePicker);
-    // ⏹ 退出批量：清批量状态 + 暂停本标签（不影响其他标签刷课）
+    // ⏹/▶ 批量模式切换键：有 batch=退出批量，无 batch=进入批量
+    const refreshQuitBtn = () => {
+      const inBatch = !!Store.getBatch();
+      ui.pkQuit.innerText = inBatch ? '⏹ 退出批量' : '▶ 进入批量';
+      ui.pkQuit.title = inBatch
+        ? '清除批量刷课状态并暂停本标签——不再自动选课'
+        : '本标签进入批量模式：自动挑选并连播未完成课程';
+    };
+    refreshQuitBtn();
     ui.pkQuit.addEventListener('click', () => {
-      Store.clearBatch();
-      Store.setPaused();
-      hidePicker();
-      log('已退出批量模式：本标签不再自动选课/刷课（其他标签不受影响）。点「▶ 开始」恢复。');
+      if (Store.getBatch()) {
+        Store.clearBatch();
+        Store.setPaused();
+        hidePicker();
+        log('已退出批量模式：本标签不再自动选课/刷课（其他标签不受影响）。点「▶ 开始」恢复。');
+      } else {
+        Store.setBatch(location.href, '');
+        Store.clearPaused();
+        hidePicker();
+        log('已进入批量模式：自动挑选下一门未完成课程…');
+        if (panel) runCourseList(panel).catch(e => log('选课异常：' + (e && (e.message || e))));
+      }
+      refreshQuitBtn();
     });
     // ⏻ 脚本总开关：localStorage 全局，所有标签生效
     const refreshMasterBtn = () => {
