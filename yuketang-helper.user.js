@@ -3547,20 +3547,27 @@ ${ocrText}
     const classroomId = Utils.getCurrentClassroomId();
     const returnUrl = Utils.returnUrl()
     Store.setPendingAutoStart(classroomId, returnUrl);
-    // 多标签并发：同一门课只允许一个标签刷，撞车的标签回列表另选
+    // 多标签并发：同一门课只允许一个标签刷
     if (classroomId && !Store.claimCourse(classroomId)) {
-      const yields = Number(sessionStorage.getItem('ykt_yield_count') || 0) + 1;
-      sessionStorage.setItem('ykt_yield_count', yields);
-      panel.log(`该课程正在其他标签页刷课中，本标签让出（第 ${yields} 次）`);
       const batch0 = Store.getBatch();
-      const busyCount = Object.keys(Store.getClaims()).filter(cid => Store.getClaims()[cid].tab !== Store.getTabId()).length;
-      if (batch0 && batch0.courselistUrl && (yields < 8 || busyCount < 7)) {
-        setTimeout(() => { location.href = batch0.courselistUrl; }, 1500);
-      } else if (batch0 && batch0.courselistUrl) {
-        // 剩余课程基本都被别的标签占着：歇 10 分钟再回列表重选
-        panel.log('暂无可分配课程，10 分钟后重试');
-        setTimeout(() => { location.href = batch0.courselistUrl; }, 10 * 60000);
+      const autoEntered = !!sessionStorage.getItem('ykt_expect_card'); // 仅批量选课路径会带此标记
+      if (autoEntered) sessionStorage.removeItem('ykt_expect_card'); // claim 失败走到不了写 map 那步——消费掉防残留误判
+      if (autoEntered && batch0 && batch0.courselistUrl) {
+        // 自动选课进来的撞车：让出回列表另选一门
+        const yields = Number(sessionStorage.getItem('ykt_yield_count') || 0) + 1;
+        sessionStorage.setItem('ykt_yield_count', yields);
+        panel.log(`该课程正在其他标签页刷课中，本标签让出（第 ${yields} 次）`);
+        const busyCount = Object.keys(Store.getClaims()).filter(cid => Store.getClaims()[cid].tab !== Store.getTabId()).length;
+        if (yields < 8 || busyCount < 7) {
+          setTimeout(() => { location.href = batch0.courselistUrl; }, 1500);
+        } else {
+          panel.log('暂无可分配课程，10 分钟后重试');
+          setTimeout(() => { location.href = batch0.courselistUrl; }, 10 * 60000);
+        }
       } else {
+        // 手动点开的课撞车：不跳走——页面保留可正常浏览，本标签不刷（修复"暂停后点课程打不开"）
+        Store.setPaused();
+        panel.log('该课程正在其他标签刷课中——本标签不自动刷，页面保留可正常浏览。想让本标签接管刷课，先在其他标签退出它再点「▶ 开始」。');
         panel.resetStartButton('开始刷课');
       }
       return;
