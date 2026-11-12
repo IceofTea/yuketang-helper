@@ -2360,8 +2360,16 @@ ${ocrText}
         } else if (type.includes('kaoshi')) {
           this.panel.log('考试区域脚本会被屏蔽，已跳过');
           this.updateProgress(this.outside + 1, 0);
+        } else if (type.includes('tuwen')) {
+          // 图文章节：点开停留即上报完成
+          course.click();
+          await Utils.sleep(1800);
+          history.back();
+          await Utils.sleep(1000);
+          this.panel.log(`已浏览图文：${title}`);
+          this.updateProgress(this.outside + 1, 0);
         } else {
-          this.panel.log('非视频/批量/课件/考试，已跳过');
+          this.panel.log('非视频/批量/课件/考试/图文，已跳过');
           this.updateProgress(this.outside + 1, 0);
         }
         if (this.shouldStop) return;
@@ -2828,7 +2836,8 @@ ${ocrText}
       let clickedAny = false;
       for (let i = 0; i < leafDetail.length; i++) {
         const info = this.leafInfo(leafDetail[i]);
-        if (!info.typeIcon.includes('shipin')) {
+        // 放行视频+图文：图文点击进内容页停留即上报完成（PlayerRunner 里 tuwen 分支阅读）
+        if (!info.typeIcon.includes('shipin') && !info.typeIcon.includes('tuwen')) {
           Store.setProClassCount(i + 2);
           continue;
         }
