@@ -133,7 +133,7 @@ const EXAM_BANK = [{"q":"工程伦理和技术伦理是同一个概念 。( )","
       Config.speedPool = [1.5, 2, 2.5];
     } else {
       const n = parseFloat(pref);
-      if (n > 0 && n <= 4) Config.speedPool = [n];
+      if (n > 0 && n <= 16) Config.speedPool = [n];
     }
     Config.playbackRate = Config.speedPool[0];
   }
@@ -514,7 +514,7 @@ const EXAM_BANK = [{"q":"工程伦理和技术伦理是同一个概念 。( )","
     setAssistMode(on) { on ? sessionStorage.setItem(Config.storageKeys.assist, '1') : sessionStorage.removeItem(Config.storageKeys.assist); },
     isExamMode() { return sessionStorage.getItem(Config.storageKeys.exam) === '1'; },
     setExamMode(on) { on ? sessionStorage.setItem(Config.storageKeys.exam, '1') : sessionStorage.removeItem(Config.storageKeys.exam); },
-    // 倍速偏好：'2'（默认）/ 'random' / '1' / '1.5' / '2.5' / '3'
+    // 倍速偏好：'2'（默认）/ 'random' / '1' / '1.5' / '2.5' / '3' / '4' / '8' / '16'
     getSpeedPref() { return localStorage.getItem(Config.storageKeys.speedPref) || '2'; },
     // 主题：'light'（默认，白底）/ 'dark'
     getTheme() { return localStorage.getItem(Config.storageKeys.theme) === 'dark' ? 'dark' : 'light'; },
@@ -992,13 +992,16 @@ const EXAM_BANK = [{"q":"工程伦理和技术伦理是同一个概念 。( )","
           <label class="work-switch" id="work-switch" title="⚠ 仅限内置题库的两门课（科研伦理/生物医药）。开启后遇到课后作业会自动勾选并提交，提交不可撤销！">
             <input type="checkbox" id="work-toggle"><span class="track"></span><span class="wl">⚠ 作业代答</span>
           </label>
-          <select id="rate-select" title="视频倍速">
+          <select id="rate-select" title="视频倍速（越高越省时间，但 >4x 可能因缓冲卡顿/进度上报异常，建议先试一节课）">
             <option value="2">2x 倍速</option>
             <option value="random">拟人随机</option>
             <option value="1">1x 原速</option>
             <option value="1.5">1.5x</option>
             <option value="2.5">2.5x</option>
             <option value="3">3x 极速</option>
+            <option value="4">4x</option>
+            <option value="8">8x 暴走</option>
+            <option value="16">16x 上限</option>
           </select>
         </div>
         <div class="hud-sub">
