@@ -1004,23 +1004,28 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
     };
 
     // ---- 拖拽（头部抓手） ----
+    // 注意：拖动时鼠标停在 iframe 上方，mousemove 只会进 iframe 文档、进不了父窗口——
+    // 所以内外都要挂监听；坐标统一用 screenX/screenY（iframe 内外同一坐标系无需换算）
     let dragging = false, startX = 0, startY = 0, startLeft = 0, startTop = 0;
     const hostWindow = iframe.contentWindow.parent || window;
     const onMove = e => {
       if (!dragging) return;
       const maxLeft = hostWindow.innerWidth - 60, maxTop = hostWindow.innerHeight - 60;
-      iframe.style.left = Math.min(Math.max(0, startLeft + e.clientX - startX), maxLeft) + 'px';
-      iframe.style.top = Math.min(Math.max(0, startTop + e.clientY - startY), maxTop) + 'px';
+      iframe.style.left = Math.min(Math.max(0, startLeft + e.screenX - startX), maxLeft) + 'px';
+      iframe.style.top = Math.min(Math.max(0, startTop + e.screenY - startY), maxTop) + 'px';
     };
     const stopDrag = () => { dragging = false; iframe.style.transition = ''; };
     ui.head.addEventListener('mousedown', e => {
+      if (e.button !== 0) return;
       dragging = true;
-      startX = e.clientX;
-      startY = e.clientY;
+      startX = e.screenX;
+      startY = e.screenY;
       startLeft = parseFloat(iframe.style.left) || iframe.getBoundingClientRect().left;
       startTop = parseFloat(iframe.style.top) || iframe.getBoundingClientRect().top;
       iframe.style.transition = 'none';
+      e.preventDefault();
     });
+    doc.addEventListener('mousemove', onMove);
     hostWindow.addEventListener('mousemove', onMove);
     doc.addEventListener('mouseup', stopDrag);
     hostWindow.addEventListener('mouseup', stopDrag);
