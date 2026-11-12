@@ -1045,10 +1045,11 @@ const EXAM_BANK = [{"q":"工程伦理和技术伦理是同一个概念 。( )","
     // ---- 拖拽（头部抓手） ----
     // 注意：拖动时鼠标停在 iframe 上方，mousemove 只会进 iframe 文档、进不了父窗口——
     // 所以内外都要挂监听；坐标统一用 screenX/screenY（iframe 内外同一坐标系无需换算）
-    let dragging = false, startX = 0, startY = 0, startLeft = 0, startTop = 0;
+    let dragging = false, startX = 0, startY = 0, startLeft = 0, startTop = 0, miniMoved = false;
     const hostWindow = iframe.contentWindow.parent || window;
     const onMove = e => {
       if (!dragging) return;
+      if (Math.abs(e.screenX - startX) + Math.abs(e.screenY - startY) > 5) miniMoved = true;
       const maxLeft = hostWindow.innerWidth - 60, maxTop = hostWindow.innerHeight - 60;
       iframe.style.left = Math.min(Math.max(0, startLeft + e.screenX - startX), maxLeft) + 'px';
       iframe.style.top = Math.min(Math.max(0, startTop + e.screenY - startY), maxTop) + 'px';
@@ -1109,7 +1110,17 @@ const EXAM_BANK = [{"q":"工程伦理和技术伦理是同一个概念 。( )","
     });
 
     ui.miniBtn.addEventListener('click', enterMini);
-    ui.hudMini.addEventListener('click', exitMini);
+    // 迷你球：可拖（按住挪 iframe 位置）+ 原地点击才还原（防拖动误触发还原）
+    ui.hudMini.addEventListener('mousedown', e => {
+      if (e.button !== 0) return;
+      dragging = true; miniMoved = false;
+      startX = e.screenX; startY = e.screenY;
+      startLeft = parseFloat(iframe.style.left) || iframe.getBoundingClientRect().left;
+      startTop = parseFloat(iframe.style.top) || iframe.getBoundingClientRect().top;
+      iframe.style.transition = 'none';
+      e.preventDefault();
+    });
+    ui.hudMini.addEventListener('click', () => { if (!miniMoved) exitMini(); });
     ui.helpBtn.addEventListener('click', () => {
       window.parent.alert(
         '雨课堂学习助手 Pro v' + Config.version + '\n\n' +
@@ -2910,6 +2921,23 @@ ${ocrText}
     }
     async run() {
       this.panel.log('正在目录页挑选可播放的视频课时...');
+      // 新标签拦截改造（最先安装，别等叶子轮询）：站点点课时走 window.open 开新标签，
+      // 弹窗被拦就"待命"空等——劫持成本页跳转，永不依赖弹窗权限（机主要求：在本页打开即可）
+      if (!window.__yktOpenHook) {
+        const origOpen = window.open;
+        window.open = function (...args) {
+          const url = args[0];
+          if (url && typeof url === 'string' && /^https?:|^\//.test(url)) {
+            window.__yktOpened = true;
+            location.href = url;
+            return { closed: false, focus() { }, close() { }, location: { href: url } }; // 伪对象骗过站点判空
+          }
+          const w = origOpen.apply(window, args);
+          if (w) window.__yktOpened = true;
+          return w;
+        };
+        window.__yktOpenHook = true;
+      }
       // 播放页（新标签页）可能没有 .leaf-detail：先等叶子出现，若等到的是播放器则直接接管
       const hasLeaves = await Utils.poll(() =>
         document.querySelectorAll('.leaf-detail').length > 0
@@ -2949,16 +2977,6 @@ ${ocrText}
         }
       };
       // 从头扫到尾：可播性由叶子自身的锁定/完成图标判断，不依赖可能过期的计数器
-      // 新标签页检测：window.open 钩子挂 window 级标志（跨多次 run 调用不失效）
-      if (!window.__yktOpenHook) {
-        const origOpen = window.open;
-        window.open = function (...args) {
-          const w = origOpen.apply(window, args);
-          if (w) window.__yktOpened = true; // 被拦截时返回 null，不误判
-          return w;
-        };
-        window.__yktOpenHook = true;
-      }
       let clickedAny = false;
       for (let i = 0; i < leafDetail.length; i++) {
         const info = this.leafInfo(leafDetail[i]);
@@ -2988,7 +3006,11 @@ ${ocrText}
           blurred || window.__yktOpened
           || document.querySelector('.btn-next') || document.querySelector('.header-bar') || document.querySelector('video'),
           { interval: 400, timeout: 7000 });
-        if (blurred || window.__yktOpened) {
+        if (window.__yktOpened) {
+          this.panel.log('播放页跳转中（本页内打开）');
+          return;
+        }
+        if (blurred) {
           this.panel.log('播放页已在新标签页打开，本页待命（由那边自动接管）');
           return;
         }
