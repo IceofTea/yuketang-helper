@@ -1262,6 +1262,8 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
     refreshMasterBtn();
     ui.masterBtn.addEventListener('click', () => {
       const off = !Store.isMasterOff();
+      // 防误触：⏻ 紧贴 ?帮助/—最小化，关闭前确认（开启不需确认）
+      if (off && !window.parent.confirm('确认关闭脚本总开关？\n\n关闭后【所有标签】停止刷课/弹窗，已打开的视频页也不会自动播放。\n再点一次 ⏻开关 恢复。')) return;
       Store.setMasterOff(off);
       refreshMasterBtn();
       if (off) { hidePicker(); log('⏻ 助手已关闭（所有标签生效）：不再自动弹窗/刷课。再点 ⏻ 恢复；想彻底退出批量去选课面板点「⏹ 退出批量」。'); }
