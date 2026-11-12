@@ -1175,8 +1175,8 @@
       const off = !Store.isMasterOff();
       Store.setMasterOff(off);
       refreshMasterBtn();
-      if (off) { hidePicker(); log('⏻ 脚本已禁用（所有标签）：不再自动弹面板/刷课。点 ⏻ 恢复。'); }
-      else log('⏻ 脚本已启用');
+      if (off) { hidePicker(); log('⏻ 助手已关闭（所有标签生效）：不再自动弹窗/刷课。再点 ⏻ 恢复；想彻底退出批量去选课面板点「⏹ 退出批量」。'); }
+      else log('⏻ 助手已启用');
     });
     // 🚀 一键打开全部未刷课程（gesture 内开多窗，放行率高）
     ui.pkSel.addEventListener('click', () => {
@@ -3514,9 +3514,9 @@ ${ocrText}
       const batch = Store.getBatch();
       const paused = Store.isPaused();
       if (Store.isMasterOff()) {
-        panel.log('⏻ 脚本已禁用（所有标签生效）：不自动弹面板/刷课。点顶部 ⏻ 恢复。');
+        panel.log('⏻ 助手已关闭：所有标签不会自动弹窗/刷课（你可能误触了顶部 ⏻ 电源键，再点一下恢复）。');
       } else if (paused) {
-        panel.log('已处于停止状态（点"开始刷课"或"重新加载"恢复）');
+        panel.log('本标签已暂停——点「▶ 开始」恢复刷课，或在选课面板点「⏹ 退出批量」彻底退出');
       } else if (batch && Utils.isCourseListPage()) {
         const waitMs = (batch.nextRetryTs || 0) - Date.now();
         if (waitMs > 0) {
@@ -3541,11 +3541,17 @@ ${ocrText}
               return;
             }
             // picker 已结束 → 20s 缓冲，留出手动停止/退出批量的窗口
-            panel.log('20 秒后自动挑选下一门课程（点「⏹ 停止」或重新打开选课面板可取消）');
+            panel.log('20 秒后自动挑选下一门课程——不想自动刷？现在点「⏸ 暂停」或「⏹ 退出批量」');
             setTimeout(() => {
               if (Store.isPaused() || Store.isMasterOff()) return;
               if (window.__yktPickerActive && window.__yktPickerActive()) { setTimeout(kickOff, 5000); return; }
               if (!Store.getBatch()) return; // 期间用户点了「退出批量」
+              // 全部课程已完成或都在刷 → 不进入自动选课，停住把决定权交给用户
+              const cs = Utils.getCourseList();
+              if (cs.length && cs.every(c => c.done || c.claimed)) {
+                panel.log('全部课程已完成或正在其他标签刷课——不自动选课。想查看/重选点标题栏 📚，想收手点「⏹ 退出批量」。');
+                return;
+              }
               runCourseList(panel).catch(e => { panel.log('选课异常：' + (e.message || e)); panel.resetStartButton('开始刷课'); });
             }, 20000);
           };
