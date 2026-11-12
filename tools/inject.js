@@ -87,7 +87,8 @@ const EXAM_BANK = [{"q":"工程伦理和技术伦理是同一个概念 。( )","
       if (!it.ws.length) continue;
       let hit = 0;
       for (const w of it.ws) if (page.includes(w)) hit++;
-      if (hit >= Math.max(2, Math.ceil(it.ws.length * 0.3))) hits.push(it);
+      const need = it.ws.length === 1 ? 1 : Math.max(2, Math.ceil(it.ws.length * 0.3));
+      if (hit >= need) hits.push(it);
     }
     return hits;
   }
@@ -191,7 +192,9 @@ const EXAM_BANK = [{"q":"工程伦理和技术伦理是同一个概念 。( )","
       return new Promise(resolve => {
         const start = Date.now();
         const timer = setInterval(() => {
-          if (checker()) {
+          let hit = false;
+          try { hit = checker(); } catch (_) { /* checker 读 DOM 偶发异常：跳过本帧，等下一帧/超时 */ }
+          if (hit) {
             clearInterval(timer);
             resolve(true);
             return;
@@ -359,8 +362,12 @@ const EXAM_BANK = [{"q":"工程伦理和技术伦理是同一个概念 。( )","
       if (!element) return fallback;
 
       let duration = Number(element.duration);
-      if (!Number.isFinite(duration) || duration <= 0) {
-        await new Promise(resolve => element.addEventListener('loadedmetadata', resolve, { once: true }));
+      if ((!Number.isFinite(duration) || duration <= 0) && element.readyState < 1) {
+        // 仅元数据未到时才等加载，且兜底 8s——直播/坏源 duration 恒非法，死等会永久卡住刷课
+        await Promise.race([
+          new Promise(resolve => element.addEventListener('loadedmetadata', resolve, { once: true })),
+          Utils.sleep(8000)
+        ]);
         duration = Number(element.duration);
       }
 
@@ -1451,8 +1458,8 @@ const EXAM_BANK = [{"q":"工程伦理和技术伦理是同一个概念 。( )","
           const pct = media.length ? Math.round(vDone / media.length * 100) : 0;
           ui.fill.style.width = (vAll ? 100 : pct) + '%';
           ui.fill.classList.toggle('done', vAll);
-          ui.vnum.innerText = `${vDone}/${media.length}`;
-          ui.leaf.innerText = vAll ? '课时已全部刷完 🎉' : `课时 ${vDone}/${media.length}`;
+          ui.vnum.innerText = media.length ? `${vDone}/${media.length}` : '—/—';
+          ui.leaf.innerText = vAll ? '课时已全部刷完 🎉' : (media.length ? `课时 ${vDone}/${media.length}` : '无可刷课时');
           // "当前第 X 节"按媒体口径显示（与进度条分母一致），激活项非媒体时单独标注
           const activeEl = activeIdx >= 0 ? leaves[activeIdx] : null;
           const mediaIdx = activeEl ? media.indexOf(activeEl) : -1;
@@ -1809,7 +1816,9 @@ const EXAM_BANK = [{"q":"工程伦理和技术伦理是同一个概念 。( )","
       const onPause = () => { if (canResume()) playVideo(); };
       video.addEventListener('pause', onPause);
       // 定时兜底：防止 pause 事件被拦截 + 周期重申倍速（防站点回写）
+      // 元素脱离文档（换集/SPA重建）即自清——调用方丢弃 stopper 也不会泄漏定时器
       const timer = setInterval(() => {
+        if (!video.isConnected) { cleanup(); return; }
         this.pinSpeed(video, Config.playbackRate);
         if (video.paused && canResume()) playVideo();
       }, 5000);
@@ -1826,11 +1835,12 @@ const EXAM_BANK = [{"q":"工程伦理和技术伦理是同一个概念 。( )","
         });
         observer.observe(target, { childList: true });
       }
-      return () => {
+      const cleanup = () => {
         video.removeEventListener('pause', onPause);
         clearInterval(timer);
         if (observer) observer.disconnect();
       };
+      return cleanup;
     },
     waitForEnd(media, timeout = 0) {
       return new Promise(resolve => {
@@ -3160,7 +3170,7 @@ ${ocrText}
       this.source = CourseDom.getAllScourse(); // 得到课程列表
       if (this.source && this.source.length) {
         this.panel.log("检测到侧边栏课程列表，页内连播下一条");
-        this.activateIndex = Array.from(this.source).findIndex(el => el.firstChild.classList.contains("is-active")) // 现在正在刷第几个（从0开始）
+        this.activateIndex = Array.from(this.source).findIndex(el => el.firstChild && el.firstChild.classList && el.firstChild.classList.contains("is-active")) // 现在正在刷第几个（从0开始）
         await this.handleNext(this.activateIndex + 1)
         return;
       }
@@ -3406,7 +3416,7 @@ ${ocrText}
           const currentRoot = CourseDom.getExerciseContainer() || root;
           const tab = CourseDom.getExerciseQuestionTabs(currentRoot)[i];
           if (tab) { tab.click(); await Utils.sleep(900); }
-          else if (i >= answers.length) break;
+          else { for (let j = i; j < answers.length; j++) missed.push(j + 1); break; } // 无题可点：剩余题记漏，不提交
           await answerOne(i, `第 ${i + 1} 题`);
           await Utils.sleep(250);
         }
@@ -3546,7 +3556,7 @@ ${ocrText}
         return;
       }
       const beforeRoute = CourseDom.getRoute();
-      this.source[count].firstChild.click();
+      (this.source[count].firstElementChild || this.source[count]).click();
       await Utils.sleep(2000);
       const afterRoute = CourseDom.getRoute();
       // 点击未导航（考试类弹框/元素失效等）：本层直接试下一条，防止在同 leaf 上死循环
@@ -3692,7 +3702,11 @@ ${ocrText}
     }
     sessionStorage.removeItem('ykt_yield_count');
     if (classroomId && !window.__yktClaimBeat) {
-      window.__yktClaimBeat = setInterval(() => Store.heartbeatClaim(classroomId), 60000);
+      window.__yktClaimBeat = setInterval(() => {
+        const cur = Utils.getCurrentClassroomId() || classroomId;
+        if (cur !== classroomId) Store.claimCourse(cur); // SPA 换课：占领新课（失败仅说明他标签先占）
+        Store.heartbeatClaim(cur);
+      }, 60000);
     }
     const aiRoute = CourseDom.getRoute();
     if (aiRoute) {
