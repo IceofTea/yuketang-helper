@@ -1556,7 +1556,15 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
     mute() {
       // 不点播放器静音按钮（是切换键，已静音时会反向取消）；直接改媒体属性最稳
       const video = document.querySelector('video');
-      if (video) { video.volume = 0; video.muted = true; }
+      if (video) this.pinMuted(video);
+    },
+    // 强制静音：站点/播放器把音量改回来时，volumechange 触发立即压回 0
+    pinMuted(media) {
+      if (!media || media.__yktMutePin) { if (media) { try { media.volume = 0; media.muted = true; } catch (_) { } } return; }
+      media.__yktMutePin = true;
+      const force = () => { try { media.volume = 0; media.muted = true; } catch (_) { } };
+      force();
+      media.addEventListener('volumechange', () => { if (media.volume > 0 || !media.muted) force(); });
     },
     // xt 播放器会强制回写 playbackRate：把元素属性改成"只吞不写"，站点回写被吞，我方通过原生 setter 直写
     _rateDesc: null,
@@ -1579,7 +1587,7 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
     applyMediaDefault(media) {
       if (!media) return;
       media.play();
-      media.volume = 0;
+      this.pinMuted(media);
       this.pinSpeed(media, Config.playbackRate);
     },
     observePause(video, shouldResume = () => true) {
@@ -1712,9 +1720,8 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
           lastMedia = media;
           media.addEventListener('pause', tick);
         }
-        media.muted = true;
         media.defaultMuted = true;
-        media.volume = 0;
+        Player.pinMuted(media);
         Player.pinSpeed(media, Config.playbackRate);
         if (media.paused && !media.ended && !Player.isNearEnd(media)) {
           media.play().catch(() => { });
