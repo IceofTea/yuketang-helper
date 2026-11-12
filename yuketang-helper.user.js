@@ -1370,8 +1370,8 @@
         const leaves = [...hostDoc.querySelectorAll('.nav-item-leaf-box')];
         const isDoneEl = el => !!el.querySelector('.icon-yuanquangou-mianzhuang');
         const textOf = el => (el.innerText || '').trim();
-        // 分类统计：视频/音频 vs 作业 vs 其它（讨论/考试/图文不计入）
-        const media = leaves.filter(el => /^(视频|音频)/.test(textOf(el)));
+        // 分类统计：视频/音频/图文 vs 作业 vs 其它（讨论/考试不计入）
+        const media = leaves.filter(el => /^(视频|音频|图文)/.test(textOf(el)));
         const works = leaves.filter(el => /^作业/.test(textOf(el)));
         const vDone = media.filter(isDoneEl).length;
         const wDone = works.filter(isDoneEl).length;
@@ -1411,12 +1411,12 @@
           ui.fill.style.width = (vAll ? 100 : pct) + '%';
           ui.fill.classList.toggle('done', vAll);
           ui.vnum.innerText = `${vDone}/${media.length}`;
-          ui.leaf.innerText = vAll ? '视频已全部刷完 🎉' : `视频 ${vDone}/${media.length}`;
+          ui.leaf.innerText = vAll ? '课时已全部刷完 🎉' : `课时 ${vDone}/${media.length}`;
           // "当前第 X 节"按媒体口径显示（与进度条分母一致），激活项非媒体时单独标注
           const activeEl = activeIdx >= 0 ? leaves[activeIdx] : null;
           const mediaIdx = activeEl ? media.indexOf(activeEl) : -1;
-          ui.cur.innerText = mediaIdx >= 0 ? `正在播第 ${mediaIdx + 1} 节视频`
-            : activeIdx >= 0 ? '当前为非视频课时' : '';
+          ui.cur.innerText = mediaIdx >= 0 ? `正在播第 ${mediaIdx + 1} 节`
+            : activeIdx >= 0 ? '当前为其它课时' : '';
           ui.wrow.style.display = ansMode ? 'flex' : 'none';
           if (ansMode) {
             const wPct = works.length ? Math.round(wDone / works.length * 100) : 0;
@@ -3400,14 +3400,15 @@ ${ocrText}
     // 直接在ai-workspace页面处理课程的逻辑
     async handleNext(count) {
       // 跳过两类 leaf：① 带"已完成"勾的（icon-yuanquangou-mianzhuang）不重播
-      // ② 非视频/音频 leaf（作业/讨论/图文/考试——点了要么弹确认框要么无意义，run 的类型分支也只会跳过）
+      // ② 非媒体 leaf（作业/讨论/考试——点了要么弹确认框要么无意义，run 的类型分支也只会跳过）
+      //    图文 leaf 与视频同权放行：点进内容页停留 ~2s 即上报阅读完成
       //    例外：答题模式开启且本课程在题库白名单时，"作业" leaf 放行进入作答
       const bankCid = Utils.getCurrentClassroomId();
       const allowExercise = Store.isAnswerMode() && !!QUESTION_BANK[bankCid];
       const isDone = el => !!el.querySelector('.icon-yuanquangou-mianzhuang');
       const isMedia = el => {
         const t = (el.innerText || '').trim();
-        if (/^\s*(视频|音频|video|audio)/i.test(t)) return true;
+        if (/^\s*(视频|音频|图文|video|audio)/i.test(t)) return true;
         return allowExercise && /^\s*作业/.test(t);
       };
       while (count < this.source.length) {
@@ -3483,6 +3484,11 @@ ${ocrText}
         ok = await this.handleMedia(route);
       } else if (route.type === 'exercise') {
         ok = await this.handleExercise(route);
+      } else if (/^(tuwen|text|read|article|graphic|image-?text)$/i.test(route.type)) {
+        // 图文课时：点开后停留即上报阅读完成，与视频同流程计入刷课
+        this.panel.log(`正在阅读图文：${CourseDom.getActiveLeafTitle() || route.leafId}`);
+        await Utils.sleep(2000);
+        ok = true;
       } else {
         this.panel.log(`当前类型为 ${route.type}，当前暂不自动处理此类型，自动跳过`);
         await Utils.sleep(2000);
