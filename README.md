@@ -22,7 +22,7 @@
 
 ## 使用方式 A：.exe 一键启动（最省事，推荐）
 
-**双击 `dist/yuketang-helper.exe`**——免 Python 免安装，控制台窗口自动完成：
+**双击 `yuketang-helper.exe`**——免 Python 免安装，控制台窗口自动完成：
 
 1. 检测调试端口，没开就自动启动带调试的 Edge/Chrome 并打开课程列表页
 2. 等你在浏览器里登录雨课堂
@@ -99,11 +99,10 @@
 ## 目录结构
 
 ```
+yuketang-helper.exe       # ★ 单文件免安装启动器（9.5MB，双击即用）
 yuketang-helper.user.js   # 脚本本体（油猴/CDP 注入同源）
 launcher.py               # 一体化启动器源码（exe 由它打包）
 一键启动.bat              # 一键启动脚本版（需 Python 3.8+）
-dist/
-  yuketang-helper.exe     # ★ 单文件免安装启动器（9.5MB，双击即用）
 README.md
 docs/
   使用指南.md              # 详细图文说明
