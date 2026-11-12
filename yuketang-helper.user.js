@@ -1055,7 +1055,10 @@
         '【主操作】\n' +
         '▶开始 = 开始/继续刷课\n' +
         '⏸暂停 = 播完当前集停下（仅本标签）\n' +
-        '⏹停止 = 停止本标签并刷新；有批量会话时显示为「⏹退出批量」= 清除批量进度并暂停本标签\n\n' +
+        '第三个按钮随状态变化：\n' +
+        '  · 批量中 → 「⏹退出批量」清批量进度并停本标签（不刷新）\n' +
+        '  · 空闲/已暂停 → 「▶进入批量」加入自动选课连播\n' +
+        '  · 单课运行中 → 「⏹停止」停本标签并刷新\n\n' +
         '【其他】\n' +
         '倍速下拉 · 📋答题助手 = 半自动看题库答案（自己勾选提交）\n' +
         '⚙AI设置 · 🗑清缓存 = 清本课进度缓存 · ↻重载 = 刷新脚本\n\n' +
@@ -1372,7 +1375,12 @@
         const working = ui.btnRun.innerText !== '▶ 开始';
         ui.dot.className = 'hud-dot ' + (paused ? 'hold' : working ? 'run' : '');
         ui.state.innerText = window.__yktStateOverride || (paused ? '已暂停' : working ? '运行中' : '待机');
-        ui.btnHalt.innerText = Store.getBatch() ? '⏹ 退出批量' : '⏹ 停止';
+        const hasBatch = !!Store.getBatch();
+        const runningNow = ui.btnRun.innerText !== '▶ 开始';
+        ui.btnHalt.innerText = hasBatch ? '⏹ 退出批量' : (runningNow ? '⏹ 停止' : '▶ 进入批量');
+        ui.btnHalt.title = hasBatch
+          ? '退出批量：清除批量进度并暂停本标签（不影响其他标签），不刷新页面'
+          : runningNow ? '停止本标签并刷新页面' : '进入批量：本标签加入自动选课连播（列表页会弹出选课面板）';
         // 课程与进度（视频条 = 主条；作业条仅在作业代答开启时显示）
         const total = media.length || leaves.length;
         if (total) {
@@ -1499,6 +1507,28 @@
       log('已清除当前课程的刷课进度缓存');
     };
     ui.btnHalt.onclick = () => {
+      if (Store.getBatch()) {
+        // 退出批量：清会话+停本标签，不刷新——页面保持，其他标签不受影响
+        Store.clearPendingAutoStart();
+        Store.clearBatch();
+        Store.setPaused();
+        running = false;
+        ui.btnRun.innerText = '▶ 开始';
+        try { hidePicker(); } catch (_) { }
+        log('已退出批量模式——本标签暂停，其他标签不受影响。想回来点「▶ 进入批量」或顶部 📚选课。');
+        return;
+      }
+      if (Store.isPaused() || ui.btnRun.innerText === '▶ 开始') {
+        // 进入批量：建会话+解除暂停，恢复自动选课连播（要手动挑课请用顶部 📚选课）
+        Store.setBatch(location.href, '');
+        Store.clearPaused();
+        try { hidePicker(); } catch (_) { }
+        log('已进入批量模式——自动挑选并连播未完成课程（手动挑课点顶部 📚选课）');
+        if (Utils.isCourseListPage()) { runCourseList(panel).catch(e => log('选课异常：' + (e && (e.message || e)))); }
+        else { invokeStart(); }
+        return;
+      }
+      // 纯停止（无批量、运行中）：暂停+刷新彻底重置
       Store.clearPendingAutoStart();
       Store.clearBatch();
       Store.setPaused();
