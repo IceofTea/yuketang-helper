@@ -112,3 +112,5 @@ python tools\cdp.py "(function(){var v=document.querySelector('video');var lg=(w
 - `Ò»¼üË¢¿Î.exe`£¨PyInstaller ´ò°üµÄ launcher£©Æô¶¯Ê±°Ñ `tools\inject.js` Ò»´ÎĞÔ¶Á½øÄÚ´æ£¨`load_inject()`£©£¬Ö®ºó×¢ÈëµÄÈ«ÊÇÄÚ´æÀïµÄ¾É°æ¡£`make_inject.py` ÖØ½¨ inject.js ºó±ØĞë**ÖØÆô exe**£¨É±½ø³ÌÔÙ¿ª£©£¬±êÇ©ÔÙË¢ĞÂ²Å³Ôµ½ĞÂ´úÂë¡£C:\Users\Administrator\watchdog.py Í¬Àí£¨¶ÁµÄÊÇ `C:\Users\Administrator\inject_test.js`£©¡£
 - ÅĞ¶ÏÒ³ÃæÅÜµÄÊÇĞÂ¾É´úÂë£º__yktAPI.getStatus() ¿´ÓĞÃ»ÓĞ `examMode` ¼ü£¬»ò HUD iframe Àï²é `#btn-exam`¡£
 
+
+- **2026-11-12 éƒ¨ç½²æ¸…ç†**ï¼šC:\Users\Administrator\watchdog.pyï¼ˆæ—§è°ƒè¯•æ³¨å…¥å™¨ï¼ŒæŒ‡å‘ inject_test.jsï¼‰ä¸ exe å¹¶è¡Œä¼šç«äº‰æ³¨å…¥æ—§ä»£ç ï¼Œå·²ç»ˆæ­¢ï¼›inject_test.js å·²åŒæ­¥ä¸ºå½“å‰ 	ools\inject.js å‰¯æœ¬ã€‚ä»¥ååªç”¨ exe éƒ¨ç½²ï¼Œä¸è¦å†æ‰‹åŠ¨è·‘æ—§ watchdogã€‚

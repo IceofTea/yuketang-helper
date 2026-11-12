@@ -392,6 +392,12 @@ const EXAM_BANK = [{"q":"工程伦理和技术伦理是同一个概念 。( )","
           clickBtn('继续观看');
         } else if (text.includes('报告老师')) {
           clickBtn('取消');
+        } else if (/承诺书|诚信学习/.test(text)) {
+          // 诚信承诺书闸门：同意按钮有3s倒计时，倒计时中点击无效→留给下一轮
+          const btn = buttons.find(b => /同意/.test(b.innerText || '') && !b.disabled && !b.classList.contains('is-disabled'));
+          if (btn) btn.click();
+        } else if (text.includes('提示')) {
+          clickBtn('我知道了');
         }
       }
     }
@@ -2977,6 +2983,34 @@ ${ocrText}
         }
       };
       // 从头扫到尾：可播性由叶子自身的锁定/完成图标判断，不依赖可能过期的计数器
+      // 清闸：诚信承诺书/提示弹窗会吞掉叶子点击（同意按钮有倒计时，等到可用再点）
+      const clearGates = async () => {
+        let cleared = false;
+        for (let t = 0; t < 16; t++) {  // 最长~8s，覆盖承诺书3s倒计时
+          let gateVisible = false;
+          for (const w of document.querySelectorAll('.el-dialog__wrapper, .el-message-box__wrapper')) {
+            const s = getComputedStyle(w), r = w.getBoundingClientRect();
+            if (s.display === 'none' || s.visibility === 'hidden' || r.width === 0) continue;
+            const txt = w.innerText || '';
+            if (!/承诺书|诚信|须知|提示/.test(txt)) continue;
+            gateVisible = true;
+            const btn = [...w.querySelectorAll('button')].find(b =>
+              /同意|我知道了|确\s*定|继续|好/.test(b.innerText || '')
+              && !b.disabled && !b.classList.contains('is-disabled'));
+            if (btn) { btn.click(); cleared = true; await Utils.jsleep(400); }
+          }
+          if (!gateVisible) break;
+          await Utils.sleep(500);
+        }
+        return cleared;
+      };
+      const waitPlayer = async () => {
+        const ok = await Utils.poll(() =>
+          window.__yktOpened
+          || document.querySelector('.btn-next') || document.querySelector('.header-bar') || document.querySelector('video'),
+          { interval: 400, timeout: 7000 });
+        return window.__yktOpened ? 'opened' : (ok ? 'inline' : 'none');
+      };
       let clickedAny = false;
       for (let i = 0; i < leafDetail.length; i++) {
         const info = this.leafInfo(leafDetail[i]);
@@ -2991,10 +3025,7 @@ ${ocrText}
         }
         if (info.locked) continue;
 
-        // 新标签页检测双保险：原生 blur 监听 + window.open 钩子（点前重置两个标志）
-        let blurred = false;
-        const realAdd = window._addEventListener ? window._addEventListener.bind(window) : window.addEventListener.bind(window);
-        realAdd('blur', () => { blurred = true; }, { once: true });
+        await clearGates();
         window.__yktOpened = false;
         await Utils.jsleep(800);
         leafDetail[i].click();
@@ -3002,19 +3033,19 @@ ${ocrText}
         Store.setProClassCount(i + 1);
         this.panel.log('已点击课时，等待播放页加载...');
 
-        const result = await Utils.poll(() =>
-          blurred || window.__yktOpened
-          || document.querySelector('.btn-next') || document.querySelector('.header-bar') || document.querySelector('video'),
-          { interval: 400, timeout: 7000 });
-        if (window.__yktOpened) {
+        let r = await waitPlayer();
+        if (r === 'none' && await clearGates()) {
+          // 点击被闸门（承诺书等）吞了：同意完后重试同一课时
+          this.panel.log('检测到拦截弹窗已同意，重试该课时...');
+          window.__yktOpened = false;
+          leafDetail[i].click();
+          r = await waitPlayer();
+        }
+        if (r === 'opened') {
           this.panel.log('播放页跳转中（本页内打开）');
           return;
         }
-        if (blurred) {
-          this.panel.log('播放页已在新标签页打开，本页待命（由那边自动接管）');
-          return;
-        }
-        if (result) {
+        if (r === 'inline') {
           this.panel.log('检测到播放界面，接管播放');
           await new PlayerRunner(this.panel).run().catch(e => this.panel.log('播放异常：' + (e.message || e)));
           return;
