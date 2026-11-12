@@ -107,3 +107,8 @@ python tools\cdp.py "(function(){var v=document.querySelector('video');var lg=(w
 - å…¨åœï¼šæ¯ä¸ªæ ‡ç­¾é¢æ¿ç‚¹ã€Œâ¹ åœæ­¢ã€ï¼ˆå†™ sessionStorage `ykt_paused`ï¼‰
 - æ¢æœºä¸»/æ¢è´¦å·ï¼šæ¸… localStorage `ykt_*` + sessionStorageï¼Œé‡èµ°éƒ¨ç½²æµç¨‹
 - è„šæœ¬æ›´æ–°ï¼šæ›¿æ¢ `yuketang-helper.user.js` â†’ æ–¹æ¡ˆ B éœ€é‡è·‘ `make_inject.py` å¹¶é‡å¯ watchdogï¼ˆå…¶å†…å­˜ä¸­ç¼“å­˜æ³¨å…¥æ–‡ä»¶ï¼‰
+
+## ²¿ÊğÁ´×¢Òâ£¨2026-11-12 ²È¿Ó£©
+- `Ò»¼üË¢¿Î.exe`£¨PyInstaller ´ò°üµÄ launcher£©Æô¶¯Ê±°Ñ `tools\inject.js` Ò»´ÎĞÔ¶Á½øÄÚ´æ£¨`load_inject()`£©£¬Ö®ºó×¢ÈëµÄÈ«ÊÇÄÚ´æÀïµÄ¾É°æ¡£`make_inject.py` ÖØ½¨ inject.js ºó±ØĞë**ÖØÆô exe**£¨É±½ø³ÌÔÙ¿ª£©£¬±êÇ©ÔÙË¢ĞÂ²Å³Ôµ½ĞÂ´úÂë¡£C:\Users\Administrator\watchdog.py Í¬Àí£¨¶ÁµÄÊÇ `C:\Users\Administrator\inject_test.js`£©¡£
+- ÅĞ¶ÏÒ³ÃæÅÜµÄÊÇĞÂ¾É´úÂë£º__yktAPI.getStatus() ¿´ÓĞÃ»ÓĞ `examMode` ¼ü£¬»ò HUD iframe Àï²é `#btn-exam`¡£
+
