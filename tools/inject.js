@@ -1339,11 +1339,16 @@ const EXAM_BANK = [{"q":"工程伦理和技术伦理是同一个概念 。( )","
       if (!Store.getBatch()) Store.setBatch(location.href, '');
       let opened = 0, blocked = 0;
       const openedCids = [];
+      // 被拦的 URL 排队给 watchdog——它用 CDP /json/new 从协议层开标签，永不被拦
+      const queue = u => {
+        window.__yktOpenQueue = window.__yktOpenQueue || [];
+        if (!window.__yktOpenQueue.includes(u)) window.__yktOpenQueue.push(u);
+      };
       for (const c of courses) {
         try {
           const w = window.open(c.url, '_blank');
-          if (w) { opened++; openedCids.push(c.cid); } else blocked++;
-        } catch (_) { blocked++; }
+          if (w) { opened++; openedCids.push(c.cid); } else { blocked++; queue(c.url); }
+        } catch (_) { blocked++; queue(c.url); }
       }
       // 已开的课程取消勾选——浏览器通常一次点击只放行 1 个弹窗，
       // 再点「打开所选」自动接着开剩余勾选课程
@@ -1354,7 +1359,7 @@ const EXAM_BANK = [{"q":"工程伦理和技术伦理是同一个概念 。( )","
         savePkChecks();
       }
       if (blocked) {
-        ui.pkTip.innerText = `已开 ${opened} 个，浏览器拦了 ${blocked} 个（一次点击通常只放行 1 个弹窗）——👉 再点闪动的蓝色按钮继续开下一个，或逐个点击课程名链接`;
+        ui.pkTip.innerText = `已开 ${opened} 个，被拦 ${blocked} 个——已排队由助手后台自动打开（数秒内出现新标签；若迟迟未开再点闪动按钮或课程名链接）`;
         ui.pkOpen.classList.add('urgent');
         ui.pkOpen.innerText = `继续打开（剩 ${blocked}）`;
       } else if (opened) {
@@ -1393,7 +1398,7 @@ const EXAM_BANK = [{"q":"工程伦理和技术伦理是同一个概念 。( )","
             const n = openChecked(true);
             // 全部被拦或无可开 → 不关面板，引导用户手动点闪动按钮
             if (!n && pkCourses.some(c => !c.done && !c.claimed && c.url)) {
-              ui.pkTip.innerText = '自动打开被浏览器拦截——👉 请点击下方闪动的「打开所选」，或逐个点击课程名链接';
+              ui.pkTip.innerText = '自动打开被拦截——已排队由助手后台打开；若数秒后仍无新标签，👉 请点闪动的「打开所选」或逐个点击课程名链接';
               ui.pkOpen.classList.add('urgent');
             } else hidePicker();
           }

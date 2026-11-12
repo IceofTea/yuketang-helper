@@ -33,6 +33,17 @@ var f=document.querySelector('#ykt-hud-frame');
 if(!f||!f.contentDocument)return 'NOIFRAME';
 var b=f.contentDocument.querySelector('#btn-run');
 if(b){b.click();return 'clicked'}return 'nobtn'})()"""
+# Atomically drain pending tab-open requests the userscript queued after popup-block
+DRAIN_JS = "(q=>(window.__yktOpenQueue=[],q))(window.__yktOpenQueue||[])"
+
+
+def open_tab_via_cdp(url):
+    try:
+        req = urllib.request.Request(CDP + '/json/new?' + urllib.parse.quote(url, safe=''), method='PUT')
+        urllib.request.urlopen(req, timeout=5)
+        return True
+    except Exception:
+        return False
 
 
 def log(msg):
@@ -116,6 +127,7 @@ def ensure_browser():
     subprocess.Popen([exe, '--remote-debugging-port=9222',
                       '--user-data-dir=%s' % profile,
                       '--no-first-run', '--no-default-browser-check',
+                      '--disable-popup-blocking',  # dedicated brushing instance: picker window.open must never be blocked
                       COURSELIST])
     for _ in range(25):
         time.sleep(1)
@@ -147,9 +159,18 @@ async def watchdog_loop(inject):
     while True:
         matched = [t for t in tabs() if t.get('type') == 'page' and any(p in t.get('url', '') for p in PATTERNS)]
         if not matched:
-            await asyncio.sleep(4)
+            await asyncio.sleep(2)
             continue
         for t in matched:
+            # popup-blocked course opens: userscript queued the urls -> open them here via CDP (never blocked)
+            try:
+                pending = await ev(t.get('webSocketDebuggerUrl'), DRAIN_JS)
+                if isinstance(pending, list):
+                    for u in pending[:10]:
+                        if isinstance(u, str) and 'yuketang.cn' in u and open_tab_via_cdp(u):
+                            log('opened queued tab via CDP: %s' % u[-60:])
+            except Exception:
+                pass
             url = t.get('url', '')
             wsu = t.get('webSocketDebuggerUrl')
             if not wsu:
@@ -199,7 +220,7 @@ async def watchdog_loop(inject):
             except Exception as e:
                 log('post check fail %s' % e)
             seen[key] = 'injected'
-        await asyncio.sleep(4)
+        await asyncio.sleep(2)
 
 
 def main():
