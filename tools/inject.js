@@ -572,6 +572,49 @@ const EXAM_BANK = [{"q":"工程伦理和技术伦理是同一个概念 。( )","
       }
       return id;
     },
+    // window.open 会克隆 opener 的 sessionStorage——两个标签因此共享 ykt_tab_id，
+    // 课程锁形同虚设（同 id 被当成"自己"放行）。用 BroadcastChannel 握手去重：
+    // 占有的标签回 'taken'，后来者换发新 id；原标签整页刷新时无人应答，id 自然保留
+    // 问某个 tabId 是否还有活着的标签在线（who/taken 握手）；无人应答=持锁者已死
+    async pingTab(id) {
+      const bc = Store.__bc;
+      if (!bc || !id) return false;
+      return await new Promise(res => {
+        let hit = false;
+        const h = e => { const d = e.data || {}; if (d.type === 'taken' && d.id === id) hit = true; };
+        bc.addEventListener('message', h);
+        bc.postMessage({ type: 'who', id });
+        setTimeout(() => { bc.removeEventListener('message', h); res(hit); }, 400);
+      });
+    },
+    // 问某门课的持锁者是否真的活着且还在该课页面（克隆共享 id 的闲置标签不会冒认）
+    async pingClaimHolder(cid) {
+      const bc = Store.__bc;
+      if (!bc || !cid) return false;
+      return await new Promise(res => {
+        let hit = false;
+        const h = e => { const d = e.data || {}; if (d.type === 'owns' && d.cid === cid) hit = true; };
+        bc.addEventListener('message', h);
+        bc.postMessage({ type: 'whoClaims', cid });
+        setTimeout(() => { bc.removeEventListener('message', h); res(hit); }, 400);
+      });
+    },
+    async ensureUniqueTabId() {
+      if (!Store.__bc) return;
+      let id = this.getTabId();
+      for (let tries = 0; tries < 3 && await this.pingTab(id); tries++) {
+        id = Math.random().toString(36).slice(2) + Date.now().toString(36);
+        sessionStorage.setItem('ykt_tab_id', id);
+      }
+    },
+    // 幽灵锁夺权：持锁 id 已无活着的标签——删掉重建
+    forceClaim(classroomId) {
+      if (!classroomId) return;
+      const claims = this.getClaims();
+      delete claims[classroomId];
+      localStorage.setItem('ykt_claims', JSON.stringify(claims));
+      this.claimCourse(classroomId);
+    },
     getClaims() {
       const saved = Utils.safeJSONParse(localStorage.getItem('ykt_claims'), {}) || {};
       const now = Date.now();
@@ -622,6 +665,25 @@ const EXAM_BANK = [{"q":"工程伦理和技术伦理是同一个概念 。( )","
       return keys;
     },
   };
+  // 跨标签身份应答器：注入即装（别等 start()，否则克隆标签问讯时原标签还没起床）
+  if ('BroadcastChannel' in window) {
+    const bc = new BroadcastChannel('ykt_tab_ids');
+    bc.onmessage = e => {
+      const d = e.data || {};
+      if (d.type === 'who' && d.id === sessionStorage.getItem('ykt_tab_id'))
+        bc.postMessage({ type: 'taken', id: d.id });
+      else if (d.type === 'whoClaims' && d.cid) {
+        // 仅当我真在这门课页面上且锁确实挂我名下，才承认"我在刷这门课"
+        try {
+          const claims = Store.getClaims();
+          if (Utils.getCurrentClassroomId() === d.cid
+            && claims[d.cid] && claims[d.cid].tab === Store.getTabId())
+            bc.postMessage({ type: 'owns', cid: d.cid });
+        } catch (_) { }
+      }
+    };
+    Store.__bc = bc;
+  }
 
   // ---- UI 面板 ----
   // ---- 悬浮控制台（深色 HUD，iframe 隔离防 SPA 样式污染） ----
@@ -3757,13 +3819,24 @@ ${ocrText}
   }
 
   // ---- 路由 ----
-  function start() {
+  async function start() {
     // ---- ai-workspace获取课程根目录信息并保存（处理完一个课程重定向到根目录） ----
     const classroomId = Utils.getCurrentClassroomId();
+    await Store.ensureUniqueTabId(); // 克隆标签先换发独立 id，再谈课程锁
     const returnUrl = Utils.returnUrl()
     Store.setPendingAutoStart(classroomId, returnUrl);
     // 多标签并发：同一门课只允许一个标签刷
-    if (classroomId && !Store.claimCourse(classroomId)) {
+    let claimed = !classroomId || Store.claimCourse(classroomId);
+    if (!claimed) {
+      // 疑似幽灵锁（持锁标签已死/克隆残留，TTL 90s 内不自动释放）：
+      // 直接问"谁在这门课上持锁"——无人应答就夺锁，别傻等
+      if (!(await Store.pingClaimHolder(classroomId))) {
+        Store.forceClaim(classroomId);
+        claimed = Store.claimCourse(classroomId);
+        if (claimed) panel.log('检测到旧标签遗留的课程锁，已接管本课程');
+      }
+    }
+    if (classroomId && !claimed) {
       const batch0 = Store.getBatch();
       const autoEntered = !!sessionStorage.getItem('ykt_expect_card'); // 仅批量选课路径会带此标记
       if (autoEntered) sessionStorage.removeItem('ykt_expect_card'); // claim 失败走到不了写 map 那步——消费掉防残留误判
