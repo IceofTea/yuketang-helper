@@ -657,9 +657,11 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
         .hud-dot.hold { background: #ffb020; color: #ffb020; }
         .hud-state { font-size: 11px; color: var(--muted); margin-right: 4px; }
         .hud-icon {
-          width: 20px; height: 20px; line-height: 20px; text-align: center;
+          min-width: 20px; height: 20px; line-height: 20px; text-align: center;
           color: var(--icon-fg); border-radius: 5px; cursor: pointer; font-size: 13px;
+          padding: 0 4px; white-space: nowrap;
         }
+        .hud-icon i { font-style: normal; font-size: 9px; margin-left: 1px; letter-spacing: 0; }
         .hud-icon:hover { background: var(--icon-hover-bg); color: var(--icon-hover-fg); }
 
         .hud-card {
@@ -834,10 +836,10 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
           <span class="hud-dot" id="hud-dot"></span>
           <span class="ttl">雨课堂学习助手 Pro</span>
           <span class="hud-state" id="hud-state">待机</span>
-          <span class="hud-icon" id="pk-btn" title="批量选课（课程列表页）">📚</span>
-          <span class="hud-icon" id="theme-btn" title="切换深浅主题">🌙</span>
-          <span class="hud-icon" id="help-btn" title="关于">?</span>
-          <span class="hud-icon" id="master-btn" title="脚本总开关（所有标签生效）">⏻</span>
+          <span class="hud-icon" id="pk-btn" title="批量选课（课程列表页）">📚<i>选课</i></span>
+          <span class="hud-icon" id="theme-btn" title="切换深浅主题">🌙<i>主题</i></span>
+          <span class="hud-icon" id="help-btn" title="关于/使用说明">?<i>帮助</i></span>
+          <span class="hud-icon" id="master-btn" title="脚本总开关（所有标签生效）">⏻<i>开关</i></span>
           <span class="hud-icon" id="mini-btn" title="最小化">—</span>
         </div>
         <div class="hud-card">
@@ -865,7 +867,7 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
         <div class="hud-ctl">
           <button class="hud-btn" id="btn-run">▶ 开始</button>
           <button class="hud-btn" id="btn-hold">⏸ 暂停</button>
-          <button class="hud-btn" id="btn-halt">⏹ 停止</button>
+          <button class="hud-btn" id="btn-halt" title="有批量会话时=退出批量：清除批量进度并暂停本标签（不影响其他标签）；否则=停止本标签并刷新">⏹ 停止</button>
         </div>
         <div class="hud-modes">
           <label class="work-switch" id="work-switch" title="⚠ 仅限内置题库的两门课（科研伦理/生物医药）。开启后遇到课后作业会自动勾选并提交，提交不可撤销！">
@@ -1034,7 +1036,7 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
       doc.body.dataset.theme = dark ? 'dark' : 'light';
       iframe.style.border = dark ? '1px solid rgba(255,255,255,.12)' : '1px solid rgba(30,60,120,.18)';
       iframe.style.boxShadow = dark ? '0 12px 40px rgba(0,0,0,.45)' : '0 12px 40px rgba(20,40,80,.18)';
-      ui.themeBtn.innerText = dark ? '☀️' : '🌙';
+      ui.themeBtn.innerHTML = (dark ? '☀️' : '🌙') + '<i>主题</i>';
       ui.themeBtn.title = dark ? '切换到浅色模式' : '切换到深色模式';
     };
     applyTheme(Store.getTheme());
@@ -1047,7 +1049,22 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
     ui.miniBtn.addEventListener('click', enterMini);
     ui.hudMini.addEventListener('click', exitMini);
     ui.helpBtn.addEventListener('click', () => {
-      window.parent.alert('雨课堂学习助手 Pro v' + Config.version + '\n基于开源雨课堂脚本社区增强（GPL3）\n刷课 · 进度仪表盘 · 可选作业代答');
+      window.parent.alert(
+        '雨课堂学习助手 Pro v' + Config.version + '\n\n' +
+        '【顶部栏】\n' +
+        '📚选课 = 打开批量选课面板（勾选课程开新标签刷）\n' +
+        '🌙主题 = 深/浅色切换\n' +
+        '⏻开关 = 脚本总开关（关闭后所有标签不弹窗不刷课）\n' +
+        '— = 最小化成角落小图标\n\n' +
+        '【主操作】\n' +
+        '▶开始 = 开始/继续刷课\n' +
+        '⏸暂停 = 播完当前集停下（仅本标签）\n' +
+        '⏹停止 = 停止本标签并刷新；有批量会话时显示为「⏹退出批量」= 清除批量进度并暂停本标签\n\n' +
+        '【其他】\n' +
+        '倍速下拉 · 📋答题助手 = 半自动看题库答案（自己勾选提交）\n' +
+        '⚙AI设置 · 🗑清缓存 = 清本课进度缓存 · ↻重载 = 刷新脚本\n\n' +
+        '基于开源雨课堂脚本社区增强（GPL3）'
+      );
     });
 
     // ---- 批量选课面板 ----
@@ -1358,7 +1375,8 @@ if (window.__yktCore) { 'already-injected'; } else { window.__yktCore = true;
         const paused = Store.isPaused();
         const working = ui.btnRun.innerText !== '▶ 开始';
         ui.dot.className = 'hud-dot ' + (paused ? 'hold' : working ? 'run' : '');
-        ui.state.innerText = paused ? '已暂停' : working ? '运行中' : '待机';
+        ui.state.innerText = window.__yktStateOverride || (paused ? '已暂停' : working ? '运行中' : '待机');
+        ui.btnHalt.innerText = Store.getBatch() ? '⏹ 退出批量' : '⏹ 停止';
         // 课程与进度（视频条 = 主条；作业条仅在作业代答开启时显示）
         const total = media.length || leaves.length;
         if (total) {
@@ -3612,20 +3630,28 @@ ${ocrText}
               setTimeout(kickOff, 2000);
               return;
             }
-            // picker 已结束 → 20s 缓冲，留出手动停止/退出批量的窗口
-            panel.log('20 秒后自动挑选下一门课程——不想自动刷？现在点「⏸ 暂停」或「⏹ 退出批量」');
-            setTimeout(() => {
-              if (Store.isPaused() || Store.isMasterOff()) return;
-              if (window.__yktPickerActive && window.__yktPickerActive()) { setTimeout(kickOff, 5000); return; }
-              if (!Store.getBatch()) return; // 期间用户点了「退出批量」
-              // 全部课程已完成或都在刷 → 不进入自动选课，停住把决定权交给用户
-              const cs = Utils.getCourseList();
-              if (cs.length && cs.every(c => c.done || c.claimed)) {
-                panel.log('全部课程已完成或正在其他标签刷课——不自动选课。想查看/重选点标题栏 📚，想收手点「⏹ 退出批量」。');
+            // picker 已结束 → 60s 缓冲（顶部状态栏倒数可见），留出手动停止/退出批量的窗口
+            panel.log('60 秒后自动挑选下一门课程——不想自动刷？现在点「⏸ 暂停」或「⏹ 退出批量」');
+            let left = 60;
+            const countdown = () => {
+              if (Store.isPaused() || Store.isMasterOff() || !Store.getBatch()) { delete window.__yktStateOverride; return; }
+              if (window.__yktPickerActive && window.__yktPickerActive()) { delete window.__yktStateOverride; setTimeout(kickOff, 5000); return; }
+              if (left <= 0) {
+                delete window.__yktStateOverride;
+                // 全部课程已完成或都在刷 → 不进入自动选课，停住把决定权交给用户
+                const cs = Utils.getCourseList();
+                if (cs.length && cs.every(c => c.done || c.claimed)) {
+                  panel.log('全部课程已完成或正在其他标签刷课——不自动选课。想查看/重选点标题栏 📚选课，想收手点「⏹ 退出批量」。');
+                  return;
+                }
+                runCourseList(panel).catch(e => { panel.log('选课异常：' + (e.message || e)); panel.resetStartButton('开始刷课'); });
                 return;
               }
-              runCourseList(panel).catch(e => { panel.log('选课异常：' + (e.message || e)); panel.resetStartButton('开始刷课'); });
-            }, 20000);
+              window.__yktStateOverride = `选课 ${left}s`;
+              left -= 1;
+              setTimeout(countdown, 1000);
+            };
+            countdown();
           };
           setTimeout(kickOff, 1500);
         }
