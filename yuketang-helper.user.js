@@ -1491,7 +1491,7 @@ const EXAM_BANK = [{"q":"工程伦理和技术伦理是同一个概念 。( )","
       try {
         const hostDoc = window.parent.document;
         const leaves = [...hostDoc.querySelectorAll('.nav-item-leaf-box')];
-        const isDoneEl = el => !!el.querySelector('.icon-yuanquangou-mianzhuang');
+        const isDoneEl = el => !!el.querySelector('.icon-yuanquangou-mianzhuang') || el.dataset.yktDone === '1';
         const textOf = el => (el.innerText || '').trim();
         // 分类统计：视频/音频/图文 vs 作业 vs 其它（讨论/考试不计入）
         const media = leaves.filter(el => /^(视频|音频|图文)/.test(textOf(el)));
@@ -2060,6 +2060,16 @@ const EXAM_BANK = [{"q":"工程伦理和技术伦理是同一个概念 。( )","
     },
     getActiveLeafTitle() {
       return document.querySelector('.leaf-item.is-active')?.innerText?.replace(/\s+/g, ' ').trim() || '';
+    },
+    // 当前激活 leaf 就地打"已完成"标：站点侧边栏的✓图标只在整页刷新时才补，
+    // 页内连播期间进度统计靠 dataset.yktDone 活着（isDoneEl 同样认它）
+    markActiveLeafDone() {
+      try {
+        const hostDoc = window.parent && window.parent.document ? window.parent.document : document;
+        const leaves = [...hostDoc.querySelectorAll('.nav-item-leaf-box')];
+        const el = leaves.find(l => l.firstChild && l.firstChild.classList && l.firstChild.classList.contains('is-active'));
+        if (el && !el.dataset.yktDone) el.dataset.yktDone = '1';
+      } catch (_) { }
     },
     // 当前激活 leaf 在"作业"类 leaf 中的序号（0 基），用于题库章节序号兜底；-1 = 非作业或未激活
     getActiveWorkIndex() {
@@ -3442,6 +3452,7 @@ ${ocrText}
         stopKeepAlive();
       }
 
+      CourseDom.markActiveLeafDone();
       this.panel.log(`${title} 播放完成`);
       return true;
     }
@@ -3736,6 +3747,7 @@ ${ocrText}
         // 图文课时：点开后停留即上报阅读完成，与视频同流程计入刷课
         this.panel.log(`正在阅读图文：${CourseDom.getActiveLeafTitle() || route.leafId}`);
         await Utils.sleep(2000);
+        CourseDom.markActiveLeafDone();
         ok = true;
       } else {
         this.panel.log(`当前类型为 ${route.type}，当前暂不自动处理此类型，自动跳过`);
