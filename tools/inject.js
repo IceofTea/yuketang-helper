@@ -500,7 +500,7 @@ const EXAM_BANK = [{"q":"工程伦理和技术伦理是同一个概念 。( )","
     },
     unmarkDone(key) {
       const set = this.getDoneSet();
-      set.delete(String(key));
+      for (const k of [].concat(key)) set.delete(String(k));
       localStorage.setItem('ykt_course_done', JSON.stringify([...set]));
     },
     clearBatch() { localStorage.removeItem(Config.storageKeys.batch); },
@@ -1283,6 +1283,13 @@ const EXAM_BANK = [{"q":"工程伦理和技术伦理是同一个概念 。( )","
         ui.pkTip.innerText = pkCourses.every(x => x.done)
           ? '🎉 全部课程已完成，辛苦啦！'
           : '全部课程均已完成或正在其他标签刷课中——脚本会自动协调，无需再开。';
+        // 全完成状态时给一个"全部标回未刷"的误标恢复入口
+        const reset = doc.createElement('a');
+        reset.innerText = '有误标？全部标回未刷';
+        reset.href = 'javascript:void(0)';
+        reset.style.cssText = 'margin-left:8px;color:#409eff;cursor:pointer;white-space:nowrap';
+        reset.onclick = () => { for (const c of pkCourses) Store.unmarkDone([c.cid, c.key]); renderPicker(); };
+        ui.pkTip.appendChild(reset);
       }
       for (const c of pkCourses) {
         const row = doc.createElement('label');
@@ -1400,7 +1407,12 @@ const EXAM_BANK = [{"q":"工程伦理和技术伦理是同一个概念 。( )","
             if (!n && pkCourses.some(c => !c.done && !c.claimed && c.url)) {
               ui.pkTip.innerText = '自动打开被拦截——已排队由助手后台打开；若数秒后仍无新标签，👉 请点闪动的「打开所选」或逐个点击课程名链接';
               ui.pkOpen.classList.add('urgent');
-            } else hidePicker();
+            } else {
+              // 全标记完成导致一门没开——在信息流里留痕，别让面板悄悄消失看着像死机
+              if (!n && pkCourses.length && pkCourses.every(c => c.done || c.claimed))
+                log('全部课程均标记为已完成/进行中——如有误标，点📚选课面板里的徽标可切换回「未刷」');
+              hidePicker();
+            }
           }
         }, 1000);
       }
@@ -1860,6 +1872,8 @@ const EXAM_BANK = [{"q":"工程伦理和技术伦理是同一个概念 。( )","
         ui.btnRun.onclick = invokeStart;
       },
       start() { invokeStart(); },
+      showPicker,
+      hidePicker,
       resetStartButton(text = '开始刷课') {
         ui.btnRun.innerText = text === '刷课中...' || text === '开始刷课' ? '▶ 开始' : text;
         if (text !== '刷课中...') running = false;
@@ -3152,12 +3166,17 @@ ${ocrText}
         }
         return cleared;
       };
-      const waitPlayer = async () => {
+      // 点中课时的三种落点：①站点 window.open（已劫持成页内跳，__yktOpened）②Vue 路由切到 lms-graph 播放页（URL 变）③原地出播放器
+      // ②最常见也最容易漏判——切页后 leaf-detail 旧节点全部失效，不检测 URL 变化就会把后续点击全打成"无响应"
+      const waitPlayer = async (oldHref) => {
         const ok = await Utils.poll(() =>
           window.__yktOpened
+          || (oldHref && location.href !== oldHref)
           || document.querySelector('.btn-next') || document.querySelector('.header-bar') || document.querySelector('video'),
-          { interval: 400, timeout: 7000 });
-        return window.__yktOpened ? 'opened' : (ok ? 'inline' : 'none');
+          { interval: 400, timeout: 12000 });
+        if (window.__yktOpened) return 'opened';
+        if (ok && oldHref && location.href !== oldHref) return 'navigated';
+        return ok ? 'inline' : 'none';
       };
       let clickedAny = false;
       for (let i = 0; i < leafDetail.length; i++) {
@@ -3176,34 +3195,45 @@ ${ocrText}
         await clearGates();
         window.__yktOpened = false;
         await Utils.jsleep(800);
+        const hrefBefore = location.href;
         leafDetail[i].click();
         clickedAny = true;
         Store.setProClassCount(i + 1);
         this.panel.log('已点击课时，等待播放页加载...');
 
-        let r = await waitPlayer();
+        let r = await waitPlayer(hrefBefore);
         if (r === 'none' && await clearGates()) {
-          // 点击被闸门（承诺书等）吞了：同意完后重试同一课时
+          // 点击被闸门（承诺书等）吞了：同意完后重取新节点重试同一课时（旧节点可能已随重渲染失效）
           this.panel.log('检测到拦截弹窗已同意，重试该课时...');
           window.__yktOpened = false;
-          leafDetail[i].click();
-          r = await waitPlayer();
+          const fresh = [...document.querySelectorAll('.leaf-detail')];
+          const retry = fresh.find(el => (el.innerText || '') === (leafDetail[i].innerText || '')) || fresh[i] || leafDetail[i];
+          const href2 = location.href;
+          retry.click();
+          r = await waitPlayer(href2);
         }
         if (r === 'opened') {
           this.panel.log('播放页跳转中（本页内打开）');
           return;
         }
-        if (r === 'inline') {
+        if (r === 'navigated' || r === 'inline') {
           this.panel.log('检测到播放界面，接管播放');
-          await new PlayerRunner(this.panel).run().catch(e => this.panel.log('播放异常：' + (e.message || e)));
+          await Utils.sleep(1200); // SPA 播放器挂载缓冲
+          // lms-graph 叶子页归 CourseRunner，原地内嵌播放器归 PlayerRunner
+          const RunnerCls = CourseDom.getRoute() ? CourseRunner : PlayerRunner;
+          await new RunnerCls(this.panel).run().catch(e => this.panel.log('播放异常：' + (e.message || e)));
           return;
         }
         this.panel.log('点击无响应，尝试下一条可播课时');
       }
-      // 没有任何一条能打开播放页
+      // 没有任何一条能打开播放页——"真完成"与"打不开"必须分开：
+      // 全部媒体课时确有完成标记才算 done；点击被弹窗/验证码吞掉≠完成，进 skipped 待重试
+      const mediaLeaves = leafDetail.filter(l => { const i = this.leafInfo(l); return i.typeIcon.includes('shipin') || i.typeIcon.includes('tuwen'); });
+      const allFinished = mediaLeaves.length > 0 && mediaLeaves.every(l => this.leafInfo(l).finished);
       const hasLockedVideo = leafDetail.some(l => { const i = this.leafInfo(l); return i.typeIcon.includes('shipin') && i.locked && !i.finished; });
-      this.panel.log(hasLockedVideo ? '未找到可点击的视频课时（均未解锁）' : '未找到可点击的视频课时（均已完成或无响应）');
-      await finishCourse(!hasLockedVideo);
+      const reallyDone = allFinished || (!mediaLeaves.length && !hasLockedVideo);
+      this.panel.log(reallyDone ? '本课程课时均已完成' : hasLockedVideo ? '未找到可点击的视频课时（均未解锁）' : '课时点击无响应（可能有弹窗/验证码拦截），暂跳过稍后自动重试');
+      await finishCourse(reallyDone);
     }
   }
 
@@ -3836,6 +3866,14 @@ ${ocrText}
             }
           }
         }
+        // 侧边栏为空（页面未加载完）绝不能判完成——空列表≠全刷完，等加载后重取一次
+        if (!this.source || !this.source.length) {
+          const fresh0 = CourseDom.getAllScourse();
+          if (fresh0 && fresh0.length) { this.source = fresh0; return this.handleNext(0); }
+          this.panel.log('课时列表为空（页面未加载完），本轮不判完成');
+          this.panel.resetStartButton('开始刷课');
+          return;
+        }
         // 服务端对账（封顶3轮，防接口口径差异造成死循环回补）
         this._auditRounds = this._auditRounds || 0;
         if (this._auditRounds < 3) {
@@ -3913,8 +3951,15 @@ ${ocrText}
 
   // ---- 课程列表页：挑选未完成课程并进入 ----
   async function runCourseList(panel) {
-    // 统一闸门：任何路径触发的自动选课都必须过检查（暂停/总开关/批量已退出 → 一律不跳）
-    if (Store.isPaused() || Store.isMasterOff() || !Store.getBatch()) return;
+    // 统一闸门：任何路径触发的自动选课都必须过检查（暂停/总开关 → 一律不跳）
+    if (Store.isPaused() || Store.isMasterOff()) return;
+    // 无批量会话时静默 return 会让用户只看到"已在运行中"死等——复位并重新打开选课面板
+    if (!Store.getBatch()) {
+      panel.log('当前无进行中的批量任务，重新打开选课面板');
+      panel.resetStartButton('开始刷课');
+      panel.showPicker && panel.showPicker(30);
+      return;
+    }
     // 选课面板激活期间本标签不自动选课跳走（picker 显示 ~45s 窗口）
     if (window.__yktPickerActive && window.__yktPickerActive()) {
       panel.log('选课面板打开中，45s 后自动恢复选课');

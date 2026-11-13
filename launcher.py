@@ -76,6 +76,9 @@ def _disable_quickedit():
         pass
 
 
+INJECT_STATE = {'path': None, 'mtime': 0}
+
+
 def load_inject():
     """Prefer a tools/inject.js next to the exe/script so users can swap in newer
     builds; fall back to the copy bundled inside the exe."""
@@ -85,6 +88,8 @@ def load_inject():
               os.path.join(here, 'inject.js')):
         if os.path.exists(p):
             src = io.open(p, encoding='utf-8').read()
+            INJECT_STATE['path'] = p
+            INJECT_STATE['mtime'] = os.path.getmtime(p)
             log('inject.js loaded from %s' % p)
             return src
     return None
@@ -187,6 +192,12 @@ async def watchdog_loop(inject):
             seen = {}
             await asyncio.sleep(3)
             continue
+        # inject.js 热更新：磁盘文件被替换时自动重读，不再靠重启 exe 才能下发新脚本
+        try:
+            if INJECT_STATE['path'] and os.path.getmtime(INJECT_STATE['path']) != INJECT_STATE['mtime']:
+                inject = load_inject() or inject
+        except Exception:
+            pass
         matched = [t for t in tabs() if t.get('type') == 'page' and any(p in t.get('url', '') for p in PATTERNS)]
         if not matched:
             await asyncio.sleep(2)
