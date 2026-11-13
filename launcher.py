@@ -48,10 +48,30 @@ def open_tab_via_cdp(url):
 
 def log(msg):
     line = f"[{time.strftime('%H:%M:%S')}] {msg}"
-    print(line, flush=True)
     try:
         with io.open(LOGPATH, 'a', encoding='utf-8') as f:
             f.write(line + '\n')
+    except Exception:
+        pass
+    try:
+        print(line, flush=True)
+    except Exception:
+        pass
+
+
+def _disable_quickedit():
+    """Win console QuickEdit: clicking inside the window selects text and FREEZES
+    the whole process at the next print(). Disable it so stray clicks can't
+    silently halt the launcher."""
+    if sys.platform != 'win32':
+        return
+    try:
+        import ctypes
+        h = ctypes.windll.kernel32.GetStdHandle(-10)  # STD_INPUT_HANDLE
+        mode = ctypes.c_ulong(0)
+        if ctypes.windll.kernel32.GetConsoleMode(h, ctypes.byref(mode)):
+            # clear ENABLE_QUICK_EDIT_MODE(0x40) + ENABLE_INSERT_MODE(0x20)
+            ctypes.windll.kernel32.SetConsoleMode(h, mode.value & ~0x60)
     except Exception:
         pass
 
@@ -157,6 +177,16 @@ async def watchdog_loop(inject):
     log('watchdog running - HUD will auto-inject into yuketang pages')
     log('==> log in to yuketang in the browser, then the picker panel appears')
     while True:
+        if not port_up():
+            # 专属浏览器被关/崩溃：自动拉起并重新打开课程列表，不留死等
+            log('debug port lost - relaunching browser')
+            if not ensure_browser():
+                await asyncio.sleep(10)
+                continue
+            ensure_courselist_open()
+            seen = {}
+            await asyncio.sleep(3)
+            continue
         matched = [t for t in tabs() if t.get('type') == 'page' and any(p in t.get('url', '') for p in PATTERNS)]
         if not matched:
             await asyncio.sleep(2)
@@ -224,6 +254,7 @@ async def watchdog_loop(inject):
 
 
 def main():
+    _disable_quickedit()
     print('=' * 56)
     print('  Yuketang Helper - one-click launcher')
     print('=' * 56)
